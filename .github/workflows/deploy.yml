@@ -3,8 +3,6 @@ name: Deploy to Cloudflare Worker
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -19,10 +17,22 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'  # ✅ Node.js 22 ব্যবহার করা হচ্ছে, যা 24-এর কাছাকাছি
 
       - name: Install Wrangler
         run: npm install -g wrangler
+
+      - name: List files for debugging
+        run: ls -la
+
+      - name: Check worker.js exists
+        run: |
+          if [ ! -f "worker.js" ]; then
+            echo "❌ worker.js not found in root directory!"
+            exit 1
+          else
+            echo "✅ worker.js found!"
+          fi
 
       - name: Create wrangler.toml
         run: |
