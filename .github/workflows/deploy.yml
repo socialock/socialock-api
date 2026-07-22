@@ -1,0 +1,44 @@
+name: Deploy to Cloudflare Worker
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Create wrangler.toml
+        run: |
+          cat > wrangler.toml << 'EOF'
+          name = "bitter-lab-e0e4"
+          main = "worker.js"
+          compatibility_date = "2024-01-01"
+
+          [[d1_databases]]
+          binding = "DB"
+          database_name = "socialock"
+          database_id = "fd11658b-acd0-4108-810a-fa8a650ad2d3"
+          EOF
+
+      - name: Deploy to Cloudflare Worker
+        run: wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
