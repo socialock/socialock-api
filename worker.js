@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 worker.js - Main Entry Point (রুট ফোল্ডারে)
+// 📁 worker.js - Main Entry Point
 // ============================================================
 
 import { corsHeaders, handleCORS } from './cors.js';
@@ -9,7 +9,12 @@ import { handleRegister } from './auth.js';
 import { getUser, getUserPosts, updateBio, searchUsers } from './users.js';
 import { getPosts, createPost, getPost, deletePost } from './posts.js';
 import { getComments, createComment, deleteComment } from './comments.js';
-import { likePost, unlikePost } from './likes.js';
+import { 
+  likePost, 
+  unlikePost, 
+  checkLiked,        // ✅ NEW
+  updatePostLikes    // ✅ NEW
+} from './likes.js';
 import { followUser, unfollowUser, getFollowers, getFollowing } from './follows.js';
 import { getNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification } from './notifications.js';
 import { getTools, createTool, deleteTool, getToolsAds } from './tools.js';
@@ -88,11 +93,22 @@ export default {
         const postId = parts[3];
         const isComments = path.includes('/comments');
         const isLikes = path.includes('/like');
+        const isLiked = path.includes('/liked');
 
-        if (method === 'GET' && !isComments && !isLikes) {
+        // ===== ✅ CHECK LIKED =====
+        if (isLiked && method === 'GET') {
+          return checkLiked(request, env, postId);
+        }
+
+        // ===== ✅ UPDATE POST LIKES =====
+        if (method === 'PATCH' && !isComments && !isLikes && !isLiked) {
+          return updatePostLikes(request, env, postId);
+        }
+
+        if (method === 'GET' && !isComments && !isLikes && !isLiked) {
           return getPost(request, env, postId);
         }
-        if (method === 'DELETE' && !isComments && !isLikes) {
+        if (method === 'DELETE' && !isComments && !isLikes && !isLiked) {
           return deletePost(request, env, postId);
         }
 
