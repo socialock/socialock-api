@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 likes.js - Likes API (Complete)
+// 📁 likes.js - Likes API
 // ============================================================
 
 import { corsHeaders } from './cors.js';
@@ -106,34 +106,6 @@ export async function checkLiked(request, env, postId) {
       success: true, 
       data: result.results.length > 0 
     }, { headers: corsHeaders });
-
-  } catch (error) {
-    return Response.json({ 
-      success: false, 
-      error: error.message 
-    }, { status: 500, headers: corsHeaders });
-  }
-}
-
-// ===== ✅ NEW: UPDATE POST LIKES COUNT =====
-export async function updatePostLikes(request, env, postId) {
-  try {
-    const body = await request.json();
-    const { likes_count } = body;
-
-    if (likes_count === undefined) {
-      return Response.json({ 
-        success: false, 
-        error: 'likes_count required' 
-      }, { status: 400, headers: corsHeaders });
-    }
-
-    await run(env,
-      'UPDATE posts SET likes_count = ? WHERE id = ?',
-      [likes_count, postId]
-    );
-
-    return Response.json({ success: true }, { headers: corsHeaders });
 
   } catch (error) {
     return Response.json({ 

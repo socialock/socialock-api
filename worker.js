@@ -6,15 +6,10 @@ import { corsHeaders, handleCORS } from './cors.js';
 
 // Import all route handlers
 import { handleRegister } from './auth.js';
-import { getUser, getUserPosts, updateBio, searchUsers } from './users.js';
-import { getPosts, createPost, getPost, deletePost } from './posts.js';
+import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers } from './users.js';
+import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
 import { getComments, createComment, deleteComment } from './comments.js';
-import { 
-  likePost, 
-  unlikePost, 
-  checkLiked,        // ✅ NEW
-  updatePostLikes    // ✅ NEW
-} from './likes.js';
+import { likePost, unlikePost, checkLiked } from './likes.js';
 import { followUser, unfollowUser, getFollowers, getFollowing } from './follows.js';
 import { getNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification } from './notifications.js';
 import { getTools, createTool, deleteTool, getToolsAds } from './tools.js';
@@ -41,10 +36,18 @@ export default {
       // ============================================================
       // USER ROUTES
       // ============================================================
+      
+      // ===== SEARCH =====
       if (path === '/api/users/search' && method === 'GET') {
         return searchUsers(request, env);
       }
 
+      // ===== VERIFIED =====
+      if (path === '/api/users/verified' && method === 'GET') {
+        return getVerifiedUsers(request, env);
+      }
+
+      // ===== USER PROFILE & RELATED =====
       if (path.startsWith('/api/users/')) {
         const parts = path.split('/');
         const userId = parts[3];
@@ -95,14 +98,14 @@ export default {
         const isLikes = path.includes('/like');
         const isLiked = path.includes('/liked');
 
-        // ===== ✅ CHECK LIKED =====
+        // ===== CHECK LIKED =====
         if (isLiked && method === 'GET') {
           return checkLiked(request, env, postId);
         }
 
-        // ===== ✅ UPDATE POST LIKES =====
+        // ===== UPDATE POST (likes_count, comments_count) =====
         if (method === 'PATCH' && !isComments && !isLikes && !isLiked) {
-          return updatePostLikes(request, env, postId);
+          return updatePost(request, env, postId);
         }
 
         if (method === 'GET' && !isComments && !isLikes && !isLiked) {
@@ -191,6 +194,7 @@ export default {
       });
 
     } catch (error) {
+      console.error('Worker Error:', error);
       return Response.json({
         success: false,
         error: 'Internal server error: ' + error.message

@@ -105,3 +105,24 @@ export async function searchUsers(request, env) {
   }
 }
 
+// ============================================================
+// 🆕 GET VERIFIED USERS (NEW)
+// ============================================================
+export async function getVerifiedUsers(request, env) {
+  try {
+    const result = await query(env,
+      'SELECT id FROM users WHERE is_verified = 1'
+    );
+
+    return Response.json({ 
+      success: true, 
+      data: result.results.map(r => r.id) 
+    }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({ 
+      success: false, 
+      error: error.message 
+    }, { status: 500, headers: corsHeaders });
+  }
+}

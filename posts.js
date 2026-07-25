@@ -115,3 +115,45 @@ export async function deletePost(request, env, postId) {
     }, { status: 500, headers: corsHeaders });
   }
 }
+
+// ===== ✅ NEW: UPDATE POST (likes_count, comments_count) =====
+export async function updatePost(request, env, postId) {
+  try {
+    const body = await request.json();
+    const { likes_count, comments_count } = body;
+
+    let updates = [];
+    let params = [];
+
+    if (likes_count !== undefined) {
+      updates.push('likes_count = ?');
+      params.push(likes_count);
+    }
+    if (comments_count !== undefined) {
+      updates.push('comments_count = ?');
+      params.push(comments_count);
+    }
+
+    if (updates.length === 0) {
+      return Response.json({ 
+        success: false, 
+        error: 'No fields to update' 
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    params.push(postId);
+
+    await run(env,
+      `UPDATE posts SET ${updates.join(', ')} WHERE id = ?`,
+      params
+    );
+
+    return Response.json({ success: true }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({ 
+      success: false, 
+      error: error.message 
+    }, { status: 500, headers: corsHeaders });
+  }
+}
