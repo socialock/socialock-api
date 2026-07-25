@@ -106,7 +106,7 @@ export async function searchUsers(request, env) {
 }
 
 // ============================================================
-// 🆕 GET VERIFIED USERS (NEW)
+// ✅ GET VERIFIED USERS (NEW)
 // ============================================================
 export async function getVerifiedUsers(request, env) {
   try {

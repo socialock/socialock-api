@@ -6,6 +6,7 @@ import { corsHeaders, handleCORS } from './cors.js';
 
 // Import all route handlers
 import { handleRegister } from './auth.js';
+// ✅ getVerifiedUsers যোগ করুন
 import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
 import { getComments, createComment, deleteComment } from './comments.js';
@@ -42,7 +43,7 @@ export default {
         return searchUsers(request, env);
       }
 
-      // ===== VERIFIED =====
+      // ===== ✅ VERIFIED (NEW) =====
       if (path === '/api/users/verified' && method === 'GET') {
         return getVerifiedUsers(request, env);
       }
@@ -103,7 +104,7 @@ export default {
           return checkLiked(request, env, postId);
         }
 
-        // ===== UPDATE POST (likes_count, comments_count) =====
+        // ===== UPDATE POST =====
         if (method === 'PATCH' && !isComments && !isLikes && !isLiked) {
           return updatePost(request, env, postId);
         }
@@ -132,7 +133,7 @@ export default {
         }
       }
 
-      // ===== DELETE COMMENT (standalone) =====
+      // ===== DELETE COMMENT =====
       if (path.startsWith('/api/comments/') && method === 'DELETE') {
         const commentId = path.split('/')[3];
         return deleteComment(request, env, commentId);
