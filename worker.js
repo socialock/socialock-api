@@ -1,15 +1,14 @@
 // ============================================================
-// 📁 worker.js - Main Entry Point
+// 📁 worker.js - Main Entry Point (Complete)
 // ============================================================
 
 import { corsHeaders, handleCORS } from './cors.js';
 
 // Import all route handlers
 import { handleRegister } from './auth.js';
-// ✅ getVerifiedUsers যোগ করুন
 import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
-import { getComments, createComment, deleteComment } from './comments.js';
+import { getComments, createComment, deleteComment, getReplies } from './comments.js';
 import { likePost, unlikePost, checkLiked } from './likes.js';
 import { followUser, unfollowUser, getFollowers, getFollowing } from './follows.js';
 import { getNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification } from './notifications.js';
@@ -43,7 +42,7 @@ export default {
         return searchUsers(request, env);
       }
 
-      // ===== ✅ VERIFIED (NEW) =====
+      // ===== VERIFIED =====
       if (path === '/api/users/verified' && method === 'GET') {
         return getVerifiedUsers(request, env);
       }
@@ -116,10 +115,16 @@ export default {
           return deletePost(request, env, postId);
         }
 
-        // ===== COMMENTS =====
+        // ============================================================
+        // COMMENTS ROUTES
+        // ============================================================
+        
+        // ===== GET COMMENTS =====
         if (isComments && method === 'GET') {
           return getComments(request, env, postId);
         }
+        
+        // ===== CREATE COMMENT / REPLY =====
         if (isComments && method === 'POST') {
           return createComment(request, env, postId);
         }
@@ -133,7 +138,17 @@ export default {
         }
       }
 
-      // ===== DELETE COMMENT =====
+      // ============================================================
+      // REPLIES ROUTES (নতুন)
+      // ============================================================
+      if (path.startsWith('/api/comments/') && path.includes('/replies') && method === 'GET') {
+        const commentId = path.split('/')[3];
+        return getReplies(request, env, commentId);
+      }
+
+      // ============================================================
+      // DELETE COMMENT
+      // ============================================================
       if (path.startsWith('/api/comments/') && method === 'DELETE') {
         const commentId = path.split('/')[3];
         return deleteComment(request, env, commentId);

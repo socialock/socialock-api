@@ -1,18 +1,29 @@
 // ============================================================
-// 📁 comments.js - Comments API
+// 📁 comments.js - Comments API (Complete)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
 
-// ===== GET COMMENTS =====
+// ===== GET COMMENTS (পোস্টের কমেন্ট) =====
 export async function getComments(request, env, postId) {
   try {
-    const result = await query(env,
-      `SELECT * FROM comments WHERE post_id = ? AND parent_comment_id IS NULL 
-       ORDER BY created_at DESC LIMIT 10`,
-      [postId]
-    );
+    const url = new URL(request.url);
+    const parentId = url.searchParams.get('parentId') || null;
+    
+    let sql = 'SELECT * FROM comments WHERE post_id = ?';
+    let params = [postId];
+    
+    if (parentId) {
+      sql += ' AND parent_comment_id = ?';
+      params.push(parentId);
+    } else {
+      sql += ' AND parent_comment_id IS NULL';
+    }
+    
+    sql += ' ORDER BY created_at ASC LIMIT 20';
+    
+    const result = await query(env, sql, params);
 
     return Response.json({ 
       success: true, 
@@ -27,7 +38,7 @@ export async function getComments(request, env, postId) {
   }
 }
 
-// ===== CREATE COMMENT =====
+// ===== CREATE COMMENT / REPLY =====
 export async function createComment(request, env, postId) {
   try {
     const body = await request.json();
@@ -40,17 +51,20 @@ export async function createComment(request, env, postId) {
       }, { status: 400, headers: corsHeaders });
     }
 
+    // Insert comment
     await run(env,
       `INSERT INTO comments (post_id, user_id, username, content, parent_comment_id, replies_count, created_at) 
        VALUES (?, ?, ?, ?, ?, 0, ?)`,
       [postId, user_id, username, content, parent_comment_id || null, new Date().toISOString()]
     );
 
+    // Update post comment count
     await run(env,
       'UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?',
       [postId]
     );
 
+    // If reply, update parent comment's reply count
     if (parent_comment_id) {
       await run(env,
         'UPDATE comments SET replies_count = replies_count + 1 WHERE id = ?',
@@ -59,6 +73,27 @@ export async function createComment(request, env, postId) {
     }
 
     return Response.json({ success: true }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({ 
+      success: false, 
+      error: error.message 
+    }, { status: 500, headers: corsHeaders });
+  }
+}
+
+// ===== GET REPLIES (একটি কমেন্টের রিপ্লাই) =====
+export async function getReplies(request, env, commentId) {
+  try {
+    const result = await query(env,
+      'SELECT * FROM comments WHERE parent_comment_id = ? ORDER BY created_at ASC LIMIT 20',
+      [commentId]
+    );
+
+    return Response.json({ 
+      success: true, 
+      data: result.results 
+    }, { headers: corsHeaders });
 
   } catch (error) {
     return Response.json({ 
@@ -81,7 +116,7 @@ export async function deleteComment(request, env, commentId) {
       }, { status: 400, headers: corsHeaders });
     }
 
-    // Get comment info first
+    // Get comment info
     const comment = await query(env,
       'SELECT post_id, parent_comment_id FROM comments WHERE id = ?',
       [commentId]
@@ -97,13 +132,18 @@ export async function deleteComment(request, env, commentId) {
     const postId = comment.results[0].post_id;
     const parentId = comment.results[0].parent_comment_id;
 
+    // Delete replies first
+    await run(env, 'DELETE FROM comments WHERE parent_comment_id = ?', [commentId]);
+    // Delete comment
     await run(env, 'DELETE FROM comments WHERE id = ? AND user_id = ?', [commentId, user_id]);
 
+    // Update post comment count
     await run(env,
       'UPDATE posts SET comments_count = comments_count - 1 WHERE id = ? AND comments_count > 0',
       [postId]
     );
 
+    // Update parent reply count
     if (parentId) {
       await run(env,
         'UPDATE comments SET replies_count = replies_count - 1 WHERE id = ? AND replies_count > 0',
@@ -120,4 +160,3 @@ export async function deleteComment(request, env, commentId) {
     }, { status: 500, headers: corsHeaders });
   }
 }
-
