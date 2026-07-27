@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 users.js - Users API
+// 📁 users.js - Users API (Complete)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
@@ -40,6 +40,27 @@ export async function getUserPosts(request, env, userId) {
   try {
     const result = await query(env,
       'SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC',
+      [userId]
+    );
+
+    return Response.json({ 
+      success: true, 
+      data: result.results 
+    }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({ 
+      success: false, 
+      error: error.message 
+    }, { status: 500, headers: corsHeaders });
+  }
+}
+
+// ===== ✅ GET USER TOOLS (NEW) =====
+export async function getUserTools(request, env, userId) {
+  try {
+    const result = await query(env,
+      'SELECT * FROM tools WHERE user_id = ? ORDER BY created_at DESC',
       [userId]
     );
 
@@ -105,9 +126,7 @@ export async function searchUsers(request, env) {
   }
 }
 
-// ============================================================
-// ✅ GET VERIFIED USERS (NEW)
-// ============================================================
+// ===== GET VERIFIED USERS =====
 export async function getVerifiedUsers(request, env) {
   try {
     const result = await query(env,

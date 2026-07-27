@@ -6,7 +6,7 @@ import { corsHeaders, handleCORS } from './cors.js';
 
 // Import all route handlers
 import { handleRegister } from './auth.js';
-import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers } from './users.js';
+import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
 import { getComments, createComment, deleteComment, getReplies } from './comments.js';
 import { likePost, unlikePost, checkLiked } from './likes.js';
@@ -47,7 +47,7 @@ export default {
         return getVerifiedUsers(request, env);
       }
 
-      // ===== USER PROFILE & RELATED =====
+      // ===== USER PROFILE, POSTS, TOOLS, FOLLOWERS, FOLLOWING =====
       if (path.startsWith('/api/users/')) {
         const parts = path.split('/');
         const userId = parts[3];
@@ -55,21 +55,36 @@ export default {
         const isBio = path.includes('/bio');
         const isFollowers = path.includes('/followers');
         const isFollowing = path.includes('/following');
+        const isTools = path.includes('/tools');
 
-        if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing) {
-          return getUser(request, env, userId);
+        // ===== GET USER TOOLS =====
+        if (method === 'GET' && isTools) {
+          return getUserTools(request, env, userId);
         }
+
+        // ===== GET USER POSTS =====
         if (method === 'GET' && isPosts) {
           return getUserPosts(request, env, userId);
         }
+
+        // ===== UPDATE BIO =====
         if (method === 'PUT' && isBio) {
           return updateBio(request, env, userId);
         }
+
+        // ===== GET FOLLOWERS =====
         if (method === 'GET' && isFollowers) {
           return getFollowers(request, env, userId);
         }
+
+        // ===== GET FOLLOWING =====
         if (method === 'GET' && isFollowing) {
           return getFollowing(request, env, userId);
+        }
+
+        // ===== GET USER PROFILE (Default) =====
+        if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing && !isTools) {
+          return getUser(request, env, userId);
         }
       }
 
@@ -108,9 +123,12 @@ export default {
           return updatePost(request, env, postId);
         }
 
+        // ===== GET SINGLE POST =====
         if (method === 'GET' && !isComments && !isLikes && !isLiked) {
           return getPost(request, env, postId);
         }
+
+        // ===== DELETE POST =====
         if (method === 'DELETE' && !isComments && !isLikes && !isLiked) {
           return deletePost(request, env, postId);
         }
@@ -129,7 +147,9 @@ export default {
           return createComment(request, env, postId);
         }
 
-        // ===== LIKES =====
+        // ============================================================
+        // LIKES ROUTES
+        // ============================================================
         if (isLikes && method === 'POST') {
           return likePost(request, env, postId);
         }
@@ -139,7 +159,7 @@ export default {
       }
 
       // ============================================================
-      // REPLIES ROUTES (নতুন)
+      // REPLIES ROUTES
       // ============================================================
       if (path.startsWith('/api/comments/') && path.includes('/replies') && method === 'GET') {
         const commentId = path.split('/')[3];
