@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 posts.js - Posts API
+// 📁 posts.js - Posts API (Complete with Like Notification)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
@@ -116,7 +116,7 @@ export async function deletePost(request, env, postId) {
   }
 }
 
-// ===== ✅ NEW: UPDATE POST (likes_count, comments_count) =====
+// ===== UPDATE POST =====
 export async function updatePost(request, env, postId) {
   try {
     const body = await request.json();

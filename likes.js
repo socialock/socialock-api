@@ -1,15 +1,16 @@
 // ============================================================
-// 📁 likes.js - Likes API
+// 📁 likes.js - Likes API (Complete with Notification)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import { createNotification } from './notifications.js';
 
 // ===== LIKE POST =====
 export async function likePost(request, env, postId) {
   try {
     const body = await request.json();
-    const { user_id } = body;
+    const { user_id, username } = body;
 
     if (!user_id) {
       return Response.json({ 
@@ -31,6 +32,23 @@ export async function likePost(request, env, postId) {
       }, { status: 400, headers: corsHeaders });
     }
 
+    // Get post owner info
+    const post = await query(env,
+      'SELECT user_id, username, content FROM posts WHERE id = ?',
+      [postId]
+    );
+
+    if (post.results.length === 0) {
+      return Response.json({ 
+        success: false, 
+        error: 'Post not found' 
+      }, { status: 404, headers: corsHeaders });
+    }
+
+    const postOwnerId = post.results[0].user_id;
+    const postContent = post.results[0].content;
+
+    // Add like
     await run(env,
       'INSERT INTO likes (post_id, user_id, created_at) VALUES (?, ?, ?)',
       [postId, user_id, new Date().toISOString()]
@@ -40,6 +58,18 @@ export async function likePost(request, env, postId) {
       'UPDATE posts SET likes_count = likes_count + 1 WHERE id = ?',
       [postId]
     );
+
+    // ✅ Create notification (only if not owner)
+    if (postOwnerId !== user_id) {
+      await createNotification(env, {
+        user_id: postOwnerId,
+        actor_id: user_id,
+        actor_username: username || 'User',
+        type: 'like',
+        post_id: postId,
+        post_content: postContent
+      });
+    }
 
     return Response.json({ success: true }, { headers: corsHeaders });
 
@@ -84,7 +114,7 @@ export async function unlikePost(request, env, postId) {
   }
 }
 
-// ===== ✅ NEW: CHECK IF USER LIKED POST =====
+// ===== CHECK IF USER LIKED POST =====
 export async function checkLiked(request, env, postId) {
   try {
     const url = new URL(request.url);

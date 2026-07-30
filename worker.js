@@ -11,7 +11,7 @@ import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.j
 import { getComments, createComment, deleteComment, getReplies } from './comments.js';
 import { likePost, unlikePost, checkLiked } from './likes.js';
 import { followUser, unfollowUser, getFollowers, getFollowing } from './follows.js';
-import { getNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification } from './notifications.js';
+import { getNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification, deleteAllNotifications } from './notifications.js';
 import { getTools, createTool, deleteTool, getToolsAds } from './tools.js';
 import { getAds } from './ads.js';
 
@@ -37,17 +37,14 @@ export default {
       // USER ROUTES
       // ============================================================
       
-      // ===== SEARCH =====
       if (path === '/api/users/search' && method === 'GET') {
         return searchUsers(request, env);
       }
 
-      // ===== VERIFIED =====
       if (path === '/api/users/verified' && method === 'GET') {
         return getVerifiedUsers(request, env);
       }
 
-      // ===== USER PROFILE, POSTS, TOOLS, FOLLOWERS, FOLLOWING =====
       if (path.startsWith('/api/users/')) {
         const parts = path.split('/');
         const userId = parts[3];
@@ -57,32 +54,26 @@ export default {
         const isFollowing = path.includes('/following');
         const isTools = path.includes('/tools');
 
-        // ===== GET USER TOOLS =====
         if (method === 'GET' && isTools) {
           return getUserTools(request, env, userId);
         }
 
-        // ===== GET USER POSTS =====
         if (method === 'GET' && isPosts) {
           return getUserPosts(request, env, userId);
         }
 
-        // ===== UPDATE BIO =====
         if (method === 'PUT' && isBio) {
           return updateBio(request, env, userId);
         }
 
-        // ===== GET FOLLOWERS =====
         if (method === 'GET' && isFollowers) {
           return getFollowers(request, env, userId);
         }
 
-        // ===== GET FOLLOWING =====
         if (method === 'GET' && isFollowing) {
           return getFollowing(request, env, userId);
         }
 
-        // ===== GET USER PROFILE (Default) =====
         if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing && !isTools) {
           return getUser(request, env, userId);
         }
@@ -113,43 +104,32 @@ export default {
         const isLikes = path.includes('/like');
         const isLiked = path.includes('/liked');
 
-        // ===== CHECK LIKED =====
         if (isLiked && method === 'GET') {
           return checkLiked(request, env, postId);
         }
 
-        // ===== UPDATE POST =====
         if (method === 'PATCH' && !isComments && !isLikes && !isLiked) {
           return updatePost(request, env, postId);
         }
 
-        // ===== GET SINGLE POST =====
         if (method === 'GET' && !isComments && !isLikes && !isLiked) {
           return getPost(request, env, postId);
         }
 
-        // ===== DELETE POST =====
         if (method === 'DELETE' && !isComments && !isLikes && !isLiked) {
           return deletePost(request, env, postId);
         }
 
-        // ============================================================
-        // COMMENTS ROUTES
-        // ============================================================
-        
-        // ===== GET COMMENTS =====
+        // ===== COMMENTS =====
         if (isComments && method === 'GET') {
           return getComments(request, env, postId);
         }
         
-        // ===== CREATE COMMENT / REPLY =====
         if (isComments && method === 'POST') {
           return createComment(request, env, postId);
         }
 
-        // ============================================================
-        // LIKES ROUTES
-        // ============================================================
+        // ===== LIKES =====
         if (isLikes && method === 'POST') {
           return likePost(request, env, postId);
         }
@@ -158,17 +138,13 @@ export default {
         }
       }
 
-      // ============================================================
-      // REPLIES ROUTES
-      // ============================================================
+      // ===== REPLIES =====
       if (path.startsWith('/api/comments/') && path.includes('/replies') && method === 'GET') {
         const commentId = path.split('/')[3];
         return getReplies(request, env, commentId);
       }
 
-      // ============================================================
-      // DELETE COMMENT
-      // ============================================================
+      // ===== DELETE COMMENT =====
       if (path.startsWith('/api/comments/') && method === 'DELETE') {
         const commentId = path.split('/')[3];
         return deleteComment(request, env, commentId);
@@ -182,6 +158,9 @@ export default {
       }
       if (path === '/api/notifications/read-all' && method === 'PUT') {
         return markAllNotificationsRead(request, env);
+      }
+      if (path === '/api/notifications/delete-all' && method === 'DELETE') {
+        return deleteAllNotifications(request, env);
       }
       if (path.startsWith('/api/notifications/')) {
         const notifId = path.split('/')[3];
@@ -219,7 +198,7 @@ export default {
       }
 
       // ============================================================
-      // 404 - Not Found
+      // 404
       // ============================================================
       return Response.json({
         success: false,

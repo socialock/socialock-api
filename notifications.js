@@ -1,11 +1,43 @@
 // ============================================================
-// 📁 notifications.js - Notifications API
+// 📁 notifications.js - Notifications API (Complete)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
 
-// ===== GET NOTIFICATIONS =====
+// ============================================================
+// CREATE NOTIFICATION
+// ============================================================
+export async function createNotification(env, data) {
+  try {
+    const { user_id, actor_id, actor_username, type, post_id, post_content, comment_id, comment_content, reply_id, reply_content } = data;
+
+    if (!user_id || !actor_id || !actor_username || !type) {
+      console.error('Missing required fields for notification');
+      return false;
+    }
+
+    // Don't notify yourself
+    if (user_id === actor_id) return false;
+
+    const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+
+    await run(env,
+      `INSERT INTO notifications (id, user_id, actor_id, actor_username, type, post_id, post_content, comment_id, comment_content, reply_id, reply_content, is_read, created_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      [id, user_id, actor_id, actor_username, type, post_id || null, post_content || null, comment_id || null, comment_content || null, reply_id || null, reply_content || null, new Date().toISOString()]
+    );
+
+    return true;
+  } catch (error) {
+    console.error('Create notification error:', error);
+    return false;
+  }
+}
+
+// ============================================================
+// GET NOTIFICATIONS
+// ============================================================
 export async function getNotifications(request, env) {
   try {
     const url = new URL(request.url);
@@ -36,7 +68,9 @@ export async function getNotifications(request, env) {
   }
 }
 
-// ===== MARK NOTIFICATION AS READ =====
+// ============================================================
+// MARK NOTIFICATION AS READ
+// ============================================================
 export async function markNotificationRead(request, env, notifId) {
   try {
     const body = await request.json();
@@ -64,7 +98,9 @@ export async function markNotificationRead(request, env, notifId) {
   }
 }
 
-// ===== MARK ALL NOTIFICATIONS AS READ =====
+// ============================================================
+// MARK ALL NOTIFICATIONS AS READ
+// ============================================================
 export async function markAllNotificationsRead(request, env) {
   try {
     const body = await request.json();
@@ -92,7 +128,9 @@ export async function markAllNotificationsRead(request, env) {
   }
 }
 
-// ===== DELETE NOTIFICATION =====
+// ============================================================
+// DELETE NOTIFICATION
+// ============================================================
 export async function deleteNotification(request, env, notifId) {
   try {
     const body = await request.json();
@@ -120,3 +158,32 @@ export async function deleteNotification(request, env, notifId) {
   }
 }
 
+// ============================================================
+// DELETE ALL NOTIFICATIONS
+// ============================================================
+export async function deleteAllNotifications(request, env) {
+  try {
+    const body = await request.json();
+    const { user_id } = body;
+
+    if (!user_id) {
+      return Response.json({ 
+        success: false, 
+        error: 'User ID required' 
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    await run(env,
+      'DELETE FROM notifications WHERE user_id = ?',
+      [user_id]
+    );
+
+    return Response.json({ success: true }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({ 
+      success: false, 
+      error: error.message 
+    }, { status: 500, headers: corsHeaders });
+  }
+}

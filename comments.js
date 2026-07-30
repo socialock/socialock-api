@@ -1,11 +1,12 @@
 // ============================================================
-// 📁 comments.js - Comments API (Complete)
+// 📁 comments.js - Comments API (Complete with Notification)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import { createNotification } from './notifications.js';
 
-// ===== GET COMMENTS (পোস্টের কমেন্ট) =====
+// ===== GET COMMENTS =====
 export async function getComments(request, env, postId) {
   try {
     const url = new URL(request.url);
@@ -51,6 +52,41 @@ export async function createComment(request, env, postId) {
       }, { status: 400, headers: corsHeaders });
     }
 
+    // Get post info
+    const post = await query(env,
+      'SELECT user_id, content FROM posts WHERE id = ?',
+      [postId]
+    );
+
+    if (post.results.length === 0) {
+      return Response.json({ 
+        success: false, 
+        error: 'Post not found' 
+      }, { status: 404, headers: corsHeaders });
+    }
+
+    const postOwnerId = post.results[0].user_id;
+    const postContent = post.results[0].content;
+
+    let notificationUserId = postOwnerId;
+    let notificationType = 'comment';
+    let commentContent = content;
+    let parentCommentContent = null;
+
+    // If reply, get parent comment info
+    if (parent_comment_id) {
+      const parentComment = await query(env,
+        'SELECT user_id, content FROM comments WHERE id = ?',
+        [parent_comment_id]
+      );
+
+      if (parentComment.results.length > 0) {
+        notificationUserId = parentComment.results[0].user_id;
+        notificationType = 'reply';
+        parentCommentContent = parentComment.results[0].content;
+      }
+    }
+
     // Insert comment
     await run(env,
       `INSERT INTO comments (post_id, user_id, username, content, parent_comment_id, replies_count, created_at) 
@@ -64,12 +100,26 @@ export async function createComment(request, env, postId) {
       [postId]
     );
 
-    // If reply, update parent comment's reply count
     if (parent_comment_id) {
       await run(env,
         'UPDATE comments SET replies_count = replies_count + 1 WHERE id = ?',
         [parent_comment_id]
       );
+    }
+
+    // ✅ Create notification
+    if (notificationUserId !== user_id) {
+      await createNotification(env, {
+        user_id: notificationUserId,
+        actor_id: user_id,
+        actor_username: username,
+        type: notificationType,
+        post_id: postId,
+        post_content: postContent,
+        comment_id: parent_comment_id || null,
+        comment_content: parentCommentContent,
+        reply_content: notificationType === 'reply' ? content : null
+      });
     }
 
     return Response.json({ success: true }, { headers: corsHeaders });
@@ -82,7 +132,7 @@ export async function createComment(request, env, postId) {
   }
 }
 
-// ===== GET REPLIES (একটি কমেন্টের রিপ্লাই) =====
+// ===== GET REPLIES =====
 export async function getReplies(request, env, commentId) {
   try {
     const result = await query(env,
@@ -116,7 +166,6 @@ export async function deleteComment(request, env, commentId) {
       }, { status: 400, headers: corsHeaders });
     }
 
-    // Get comment info
     const comment = await query(env,
       'SELECT post_id, parent_comment_id FROM comments WHERE id = ?',
       [commentId]
@@ -132,18 +181,14 @@ export async function deleteComment(request, env, commentId) {
     const postId = comment.results[0].post_id;
     const parentId = comment.results[0].parent_comment_id;
 
-    // Delete replies first
     await run(env, 'DELETE FROM comments WHERE parent_comment_id = ?', [commentId]);
-    // Delete comment
     await run(env, 'DELETE FROM comments WHERE id = ? AND user_id = ?', [commentId, user_id]);
 
-    // Update post comment count
     await run(env,
       'UPDATE posts SET comments_count = comments_count - 1 WHERE id = ? AND comments_count > 0',
       [postId]
     );
 
-    // Update parent reply count
     if (parentId) {
       await run(env,
         'UPDATE comments SET replies_count = replies_count - 1 WHERE id = ? AND replies_count > 0',
