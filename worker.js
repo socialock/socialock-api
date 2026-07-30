@@ -1,11 +1,9 @@
 // ============================================================
-// 📁 worker.js - Main Entry Point (Complete)
+// 📁 worker.js - Main Entry Point (Updated)
 // ============================================================
 
 import { corsHeaders, handleCORS } from './cors.js';
-
-// Import all route handlers
-import { handleRegister } from './auth.js';
+import { handleRegister, handleLogin } from './auth.js';
 import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
 import { getComments, createComment, deleteComment, getReplies } from './comments.js';
@@ -31,6 +29,11 @@ export default {
       // ============================================================
       if (path === '/api/auth/register' && method === 'POST') {
         return handleRegister(request, env);
+      }
+
+      // ✅ NEW: Login Route
+      if (path === '/api/auth/login' && method === 'POST') {
+        return handleLogin(request, env);
       }
 
       // ============================================================
