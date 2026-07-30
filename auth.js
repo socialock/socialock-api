@@ -84,7 +84,7 @@ export async function handleRegister(request, env) {
 }
 
 // ============================================================
-// LOGIN - NEW
+// LOGIN
 // ============================================================
 export async function handleLogin(request, env) {
   try {

@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 worker.js - Main Entry Point (Updated)
+// 📁 worker.js - Main Entry Point (Complete)
 // ============================================================
 
 import { corsHeaders, handleCORS } from './cors.js';
@@ -31,7 +31,6 @@ export default {
         return handleRegister(request, env);
       }
 
-      // ✅ NEW: Login Route
       if (path === '/api/auth/login' && method === 'POST') {
         return handleLogin(request, env);
       }
