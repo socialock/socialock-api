@@ -13,7 +13,10 @@ export function handleCORS(request) {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
-      headers: corsHeaders
+      headers: {
+        ...corsHeaders,
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
     });
   }
   return null;

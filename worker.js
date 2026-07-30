@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 worker.js - Main Entry Point (Complete)
+// 📁 worker.js - Main Entry Point (FULL UPDATED)
 // ============================================================
 
 import { corsHeaders, handleCORS } from './cors.js';
@@ -15,13 +15,22 @@ import { getAds } from './ads.js';
 
 export default {
   async fetch(request, env) {
+    // ✅ CORS Preflight - প্রথমে হ্যান্ডেল করুন
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Max-Age': '86400',
+        }
+      });
+    }
+
     const url = new URL(request.url);
     const method = request.method;
     const path = url.pathname;
-
-    // ===== CORS PREFLIGHT =====
-    const corsResponse = handleCORS(request);
-    if (corsResponse) return corsResponse;
 
     try {
       // ============================================================
@@ -153,23 +162,35 @@ export default {
       }
 
       // ============================================================
-      // NOTIFICATIONS ROUTES
+      // NOTIFICATIONS ROUTES - ✅ সঠিক অর্ডারে
       // ============================================================
+      
+      // GET notifications
       if (path === '/api/notifications' && method === 'GET') {
         return getNotifications(request, env);
       }
+      
+      // ✅ Read single notification - আগে বসান (read-all এর আগে)
+      if (path.startsWith('/api/notifications/') && path.endsWith('/read') && method === 'PUT') {
+        const notifId = path.split('/')[3];
+        return markNotificationRead(request, env, notifId);
+      }
+      
+      // Mark all as read
       if (path === '/api/notifications/read-all' && method === 'PUT') {
         return markAllNotificationsRead(request, env);
       }
+      
+      // Delete all
       if (path === '/api/notifications/delete-all' && method === 'DELETE') {
         return deleteAllNotifications(request, env);
       }
-      if (path.startsWith('/api/notifications/')) {
-        const notifId = path.split('/')[3];
-        if (method === 'PUT' && path.includes('/read')) {
-          return markNotificationRead(request, env, notifId);
-        }
-        if (method === 'DELETE') {
+      
+      // ✅ Delete single notification
+      if (path.startsWith('/api/notifications/') && method === 'DELETE') {
+        const parts = path.split('/');
+        const notifId = parts[3];
+        if (notifId !== 'delete-all') {
           return deleteNotification(request, env, notifId);
         }
       }

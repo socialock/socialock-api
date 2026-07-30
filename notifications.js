@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 notifications.js - Notifications API (Complete)
+// 📁 notifications.js - Notifications API (FULL UPDATED)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
@@ -69,7 +69,7 @@ export async function getNotifications(request, env) {
 }
 
 // ============================================================
-// MARK NOTIFICATION AS READ
+// MARK NOTIFICATION AS READ - ✅ FIXED
 // ============================================================
 export async function markNotificationRead(request, env, notifId) {
   try {
@@ -83,14 +83,20 @@ export async function markNotificationRead(request, env, notifId) {
       }, { status: 400, headers: corsHeaders });
     }
 
+    console.log('📤 Marking as read:', notifId, 'for user:', user_id);
+
     await run(env,
       'UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?',
       [notifId, user_id]
     );
 
-    return Response.json({ success: true }, { headers: corsHeaders });
+    return Response.json({ 
+      success: true,
+      message: 'Notification marked as read'
+    }, { headers: corsHeaders });
 
   } catch (error) {
+    console.error('❌ Mark read error:', error);
     return Response.json({ 
       success: false, 
       error: error.message 
@@ -129,7 +135,7 @@ export async function markAllNotificationsRead(request, env) {
 }
 
 // ============================================================
-// DELETE NOTIFICATION
+// DELETE NOTIFICATION - ✅ FIXED
 // ============================================================
 export async function deleteNotification(request, env, notifId) {
   try {
@@ -143,14 +149,20 @@ export async function deleteNotification(request, env, notifId) {
       }, { status: 400, headers: corsHeaders });
     }
 
+    console.log('📤 Deleting notification:', notifId, 'for user:', user_id);
+
     await run(env,
       'DELETE FROM notifications WHERE id = ? AND user_id = ?',
       [notifId, user_id]
     );
 
-    return Response.json({ success: true }, { headers: corsHeaders });
+    return Response.json({ 
+      success: true,
+      message: 'Notification deleted'
+    }, { headers: corsHeaders });
 
   } catch (error) {
+    console.error('❌ Delete error:', error);
     return Response.json({ 
       success: false, 
       error: error.message 
