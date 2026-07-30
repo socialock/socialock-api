@@ -1,8 +1,8 @@
 // ============================================================
-// 📁 worker.js - Main Entry Point (FULL UPDATED)
+// 📁 worker.js - Main Entry Point (Complete with CORS)
 // ============================================================
 
-import { corsHeaders, handleCORS } from './cors.js';
+import { corsHeaders, handleCORS, corsResponse, jsonResponse } from './cors.js';
 import { handleRegister, handleLogin } from './auth.js';
 import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
@@ -15,48 +15,39 @@ import { getAds } from './ads.js';
 
 export default {
   async fetch(request, env) {
-    // ✅ CORS Preflight - প্রথমে হ্যান্ডেল করুন
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Max-Age': '86400',
-        }
-      });
-    }
+    // ============================================================
+    // 1️⃣ CORS Preflight - সবচেয়ে আগে হ্যান্ডেল করুন
+    // ============================================================
+    const corsPreflight = handleCORS(request);
+    if (corsPreflight) return corsPreflight;
 
     const url = new URL(request.url);
     const method = request.method;
     const path = url.pathname;
 
     try {
+      let response = null;
+
       // ============================================================
       // AUTH ROUTES
       // ============================================================
       if (path === '/api/auth/register' && method === 'POST') {
-        return handleRegister(request, env);
-      }
-
-      if (path === '/api/auth/login' && method === 'POST') {
-        return handleLogin(request, env);
+        response = await handleRegister(request, env);
+      } 
+      else if (path === '/api/auth/login' && method === 'POST') {
+        response = await handleLogin(request, env);
       }
 
       // ============================================================
       // USER ROUTES
       // ============================================================
-      
-      if (path === '/api/users/search' && method === 'GET') {
-        return searchUsers(request, env);
-      }
-
-      if (path === '/api/users/verified' && method === 'GET') {
-        return getVerifiedUsers(request, env);
-      }
-
-      if (path.startsWith('/api/users/')) {
+      else if (path === '/api/users/search' && method === 'GET') {
+        response = await searchUsers(request, env);
+      } 
+      else if (path === '/api/users/verified' && method === 'GET') {
+        response = await getVerifiedUsers(request, env);
+      } 
+      else if (path.startsWith('/api/users/')) {
         const parts = path.split('/');
         const userId = parts[3];
         const isPosts = path.includes('/posts');
@@ -66,49 +57,43 @@ export default {
         const isTools = path.includes('/tools');
 
         if (method === 'GET' && isTools) {
-          return getUserTools(request, env, userId);
-        }
-
-        if (method === 'GET' && isPosts) {
-          return getUserPosts(request, env, userId);
-        }
-
-        if (method === 'PUT' && isBio) {
-          return updateBio(request, env, userId);
-        }
-
-        if (method === 'GET' && isFollowers) {
-          return getFollowers(request, env, userId);
-        }
-
-        if (method === 'GET' && isFollowing) {
-          return getFollowing(request, env, userId);
-        }
-
-        if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing && !isTools) {
-          return getUser(request, env, userId);
+          response = await getUserTools(request, env, userId);
+        } 
+        else if (method === 'GET' && isPosts) {
+          response = await getUserPosts(request, env, userId);
+        } 
+        else if (method === 'PUT' && isBio) {
+          response = await updateBio(request, env, userId);
+        } 
+        else if (method === 'GET' && isFollowers) {
+          response = await getFollowers(request, env, userId);
+        } 
+        else if (method === 'GET' && isFollowing) {
+          response = await getFollowing(request, env, userId);
+        } 
+        else if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing && !isTools) {
+          response = await getUser(request, env, userId);
         }
       }
 
-      // ===== FOLLOW/UNFOLLOW =====
-      if (path === '/api/users/follow' && method === 'POST') {
-        return followUser(request, env);
-      }
-      if (path === '/api/users/follow' && method === 'DELETE') {
-        return unfollowUser(request, env);
+      // ===== FOLLOW / UNFOLLOW =====
+      else if (path === '/api/users/follow' && method === 'POST') {
+        response = await followUser(request, env);
+      } 
+      else if (path === '/api/users/follow' && method === 'DELETE') {
+        response = await unfollowUser(request, env);
       }
 
       // ============================================================
       // POST ROUTES
       // ============================================================
-      if (path === '/api/posts' && method === 'GET') {
-        return getPosts(request, env);
-      }
-      if (path === '/api/posts' && method === 'POST') {
-        return createPost(request, env);
-      }
-
-      if (path.startsWith('/api/posts/')) {
+      else if (path === '/api/posts' && method === 'GET') {
+        response = await getPosts(request, env);
+      } 
+      else if (path === '/api/posts' && method === 'POST') {
+        response = await createPost(request, env);
+      } 
+      else if (path.startsWith('/api/posts/')) {
         const parts = path.split('/');
         const postId = parts[3];
         const isComments = path.includes('/comments');
@@ -116,130 +101,115 @@ export default {
         const isLiked = path.includes('/liked');
 
         if (isLiked && method === 'GET') {
-          return checkLiked(request, env, postId);
-        }
-
-        if (method === 'PATCH' && !isComments && !isLikes && !isLiked) {
-          return updatePost(request, env, postId);
-        }
-
-        if (method === 'GET' && !isComments && !isLikes && !isLiked) {
-          return getPost(request, env, postId);
-        }
-
-        if (method === 'DELETE' && !isComments && !isLikes && !isLiked) {
-          return deletePost(request, env, postId);
-        }
-
-        // ===== COMMENTS =====
-        if (isComments && method === 'GET') {
-          return getComments(request, env, postId);
-        }
-        
-        if (isComments && method === 'POST') {
-          return createComment(request, env, postId);
-        }
-
-        // ===== LIKES =====
-        if (isLikes && method === 'POST') {
-          return likePost(request, env, postId);
-        }
-        if (isLikes && method === 'DELETE') {
-          return unlikePost(request, env, postId);
+          response = await checkLiked(request, env, postId);
+        } 
+        else if (method === 'PATCH' && !isComments && !isLikes && !isLiked) {
+          response = await updatePost(request, env, postId);
+        } 
+        else if (method === 'GET' && !isComments && !isLikes && !isLiked) {
+          response = await getPost(request, env, postId);
+        } 
+        else if (method === 'DELETE' && !isComments && !isLikes && !isLiked) {
+          response = await deletePost(request, env, postId);
+        } 
+        else if (isComments && method === 'GET') {
+          response = await getComments(request, env, postId);
+        } 
+        else if (isComments && method === 'POST') {
+          response = await createComment(request, env, postId);
+        } 
+        else if (isLikes && method === 'POST') {
+          response = await likePost(request, env, postId);
+        } 
+        else if (isLikes && method === 'DELETE') {
+          response = await unlikePost(request, env, postId);
         }
       }
 
       // ===== REPLIES =====
-      if (path.startsWith('/api/comments/') && path.includes('/replies') && method === 'GET') {
+      else if (path.startsWith('/api/comments/') && path.includes('/replies') && method === 'GET') {
         const commentId = path.split('/')[3];
-        return getReplies(request, env, commentId);
-      }
-
-      // ===== DELETE COMMENT =====
-      if (path.startsWith('/api/comments/') && method === 'DELETE') {
+        response = await getReplies(request, env, commentId);
+      } 
+      else if (path.startsWith('/api/comments/') && method === 'DELETE') {
         const commentId = path.split('/')[3];
-        return deleteComment(request, env, commentId);
+        response = await deleteComment(request, env, commentId);
       }
 
       // ============================================================
-      // NOTIFICATIONS ROUTES - ✅ সঠিক অর্ডারে
+      // NOTIFICATIONS ROUTES - ✅ সঠিক অর্ডার
       // ============================================================
-      
-      // GET notifications
-      if (path === '/api/notifications' && method === 'GET') {
-        return getNotifications(request, env);
+      // 1️⃣ GET notifications
+      else if (path === '/api/notifications' && method === 'GET') {
+        response = await getNotifications(request, env);
       }
-      
-      // ✅ Read single notification - আগে বসান (read-all এর আগে)
-      if (path.startsWith('/api/notifications/') && path.endsWith('/read') && method === 'PUT') {
+      // 2️⃣ Mark single as read - read-all এর আগে বসাতে হবে
+      else if (path.startsWith('/api/notifications/') && path.endsWith('/read') && method === 'PUT') {
         const notifId = path.split('/')[3];
-        return markNotificationRead(request, env, notifId);
+        response = await markNotificationRead(request, env, notifId);
       }
-      
-      // Mark all as read
-      if (path === '/api/notifications/read-all' && method === 'PUT') {
-        return markAllNotificationsRead(request, env);
+      // 3️⃣ Mark all as read
+      else if (path === '/api/notifications/read-all' && method === 'PUT') {
+        response = await markAllNotificationsRead(request, env);
       }
-      
-      // Delete all
-      if (path === '/api/notifications/delete-all' && method === 'DELETE') {
-        return deleteAllNotifications(request, env);
+      // 4️⃣ Delete all
+      else if (path === '/api/notifications/delete-all' && method === 'DELETE') {
+        response = await deleteAllNotifications(request, env);
       }
-      
-      // ✅ Delete single notification
-      if (path.startsWith('/api/notifications/') && method === 'DELETE') {
+      // 5️⃣ Delete single
+      else if (path.startsWith('/api/notifications/') && method === 'DELETE') {
         const parts = path.split('/');
         const notifId = parts[3];
         if (notifId !== 'delete-all') {
-          return deleteNotification(request, env, notifId);
+          response = await deleteNotification(request, env, notifId);
         }
       }
 
       // ============================================================
       // TOOLS ROUTES
       // ============================================================
-      if (path === '/api/tools' && method === 'GET') {
-        return getTools(request, env);
-      }
-      if (path === '/api/tools' && method === 'POST') {
-        return createTool(request, env);
-      }
-      if (path.startsWith('/api/tools/') && method === 'DELETE') {
+      else if (path === '/api/tools' && method === 'GET') {
+        response = await getTools(request, env);
+      } 
+      else if (path === '/api/tools' && method === 'POST') {
+        response = await createTool(request, env);
+      } 
+      else if (path.startsWith('/api/tools/') && method === 'DELETE') {
         const toolId = path.split('/')[3];
-        return deleteTool(request, env, toolId);
-      }
-
-      if (path === '/api/tools_ads' && method === 'GET') {
-        return getToolsAds(request, env);
+        response = await deleteTool(request, env, toolId);
+      } 
+      else if (path === '/api/tools_ads' && method === 'GET') {
+        response = await getToolsAds(request, env);
       }
 
       // ============================================================
       // ADS ROUTES
       // ============================================================
-      if (path === '/api/ads' && method === 'GET') {
-        return getAds(request, env);
+      else if (path === '/api/ads' && method === 'GET') {
+        response = await getAds(request, env);
       }
 
       // ============================================================
-      // 404
+      // 404 - Not Found
       // ============================================================
-      return Response.json({
-        success: false,
-        error: 'API endpoint not found'
-      }, {
-        status: 404,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+      else {
+        response = jsonResponse({
+          success: false,
+          error: 'API endpoint not found'
+        }, 404);
+      }
+
+      // ============================================================
+      // 2️⃣ সব Response-এ CORS Headers যোগ করুন
+      // ============================================================
+      return corsResponse(response);
 
     } catch (error) {
       console.error('Worker Error:', error);
-      return Response.json({
+      return jsonResponse({
         success: false,
         error: 'Internal server error: ' + error.message
-      }, {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+      }, 500);
     }
   }
 };
