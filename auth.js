@@ -35,22 +35,19 @@ export async function handleRegister(request, env) {
       }, { status: 400, headers: corsHeaders });
     }
 
-    // Check if username exists
+    // Check duplicates
     const existingUser = await query(env, 
-      'SELECT id FROM users WHERE username = ?', [username]
+      'SELECT id FROM users WHERE username = ? OR email = ?', [username, email]
     );
+    
     if (existingUser.results.length > 0) {
-      return Response.json({ 
-        success: false, 
-        error: 'Username already taken' 
-      }, { status: 400, headers: corsHeaders });
-    }
-
-    // Check if email exists
-    const existingEmail = await query(env, 
-      'SELECT id FROM users WHERE email = ?', [email]
-    );
-    if (existingEmail.results.length > 0) {
+      const isUsername = await query(env, 'SELECT id FROM users WHERE username = ?', [username]);
+      if (isUsername.results.length > 0) {
+        return Response.json({ 
+          success: false, 
+          error: 'Username already taken' 
+        }, { status: 400, headers: corsHeaders });
+      }
       return Response.json({ 
         success: false, 
         error: 'Email already registered' 
@@ -128,15 +125,75 @@ export async function handleLogin(request, env) {
 
     return Response.json({ 
       success: true, 
-      data: { 
-        user: user.results[0] 
-      }
+      data: { user: user.results[0] }
     }, { headers: corsHeaders });
 
   } catch (error) {
     return Response.json({ 
       success: false, 
       error: error.message 
+    }, { status: 500, headers: corsHeaders });
+  }
+}
+
+// ============================================================
+// RESET PASSWORD (Daily limit 5)
+// ============================================================
+export async function handleResetPassword(request, env) {
+  try {
+    const body = await request.json();
+    const { email } = body;
+
+    if (!email || !email.includes('@')) {
+      return Response.json({
+        success: false,
+        error: 'Invalid email address'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // 1. Get current count
+    const existing = await query(env,
+      `SELECT count FROM password_resets WHERE email = ? AND date = ?`,
+      [email, today]
+    );
+
+    let currentCount = 0;
+    if (existing.results.length > 0) {
+      currentCount = existing.results[0].count;
+    }
+
+    // 2. Check limit (max 5 per day)
+    if (currentCount >= 5) {
+      return Response.json({
+        success: false,
+        error: 'You have reached the daily limit (5 requests). Please try again tomorrow.'
+      }, { status: 429, headers: corsHeaders });
+    }
+
+    // 3. Increment or insert
+    if (existing.results.length > 0) {
+      await run(env,
+        `UPDATE password_resets SET count = count + 1 WHERE email = ? AND date = ?`,
+        [email, today]
+      );
+    } else {
+      await run(env,
+        `INSERT INTO password_resets (email, date, count) VALUES (?, ?, 1)`,
+        [email, today]
+      );
+    }
+
+    return Response.json({
+      success: true,
+      message: 'Reset request allowed'
+    }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({
+      success: false,
+      error: error.message
     }, { status: 500, headers: corsHeaders });
   }
 }
