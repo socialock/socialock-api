@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 worker.js - Main Entry Point (Complete with P2P)
+// 📁 worker.js - Main Entry Point (Complete)
 // ============================================================
 
 import { corsHeaders, handleCORS } from './cors.js';
@@ -20,6 +20,11 @@ import {
     handleGetRooms,
     handleHeartbeat,
     handleDeleteRoom,
+    handleSaveSignal,
+    handleGetSignals,
+    handleApproveUser,
+    handleKickUser,
+    handleGetParticipants,
     handleP2PWebSocket
 } from './p2p.js';
 
@@ -49,26 +54,22 @@ export default {
             if (path === '/api/auth/register' && method === 'POST') {
                 return handleRegister(request, env);
             }
-
             if (path === '/api/auth/login' && method === 'POST') {
                 return handleLogin(request, env);
             }
-
             if (path === '/api/auth/reset-password' && method === 'POST') {
                 return handleResetPassword(request, env);
             }
 
             // ============================================================
-            // USER ROUTES
+            // USER ROUTES (আগের মতো)
             // ============================================================
             if (path === '/api/users/search' && method === 'GET') {
                 return searchUsers(request, env);
             }
-
             if (path === '/api/users/verified' && method === 'GET') {
                 return getVerifiedUsers(request, env);
             }
-
             if (path.startsWith('/api/users/')) {
                 const parts = path.split('/');
                 const userId = parts[3];
@@ -81,23 +82,18 @@ export default {
                 if (method === 'GET' && isTools) {
                     return getUserTools(request, env, userId);
                 }
-
                 if (method === 'GET' && isPosts) {
                     return getUserPosts(request, env, userId);
                 }
-
                 if (method === 'PUT' && isBio) {
                     return updateBio(request, env, userId);
                 }
-
                 if (method === 'GET' && isFollowers) {
                     return getFollowers(request, env, userId);
                 }
-
                 if (method === 'GET' && isFollowing) {
                     return getFollowing(request, env, userId);
                 }
-
                 if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing && !isTools) {
                     return getUser(request, env, userId);
                 }
@@ -112,7 +108,7 @@ export default {
             }
 
             // ============================================================
-            // POST ROUTES
+            // POST ROUTES (আগের মতো)
             // ============================================================
             if (path === '/api/posts' && method === 'GET') {
                 return getPosts(request, env);
@@ -120,7 +116,6 @@ export default {
             if (path === '/api/posts' && method === 'POST') {
                 return createPost(request, env);
             }
-
             if (path.startsWith('/api/posts/')) {
                 const parts = path.split('/');
                 const postId = parts[3];
@@ -131,29 +126,21 @@ export default {
                 if (isLiked && method === 'GET') {
                     return checkLiked(request, env, postId);
                 }
-
                 if (method === 'PATCH' && !isComments && !isLikes && !isLiked) {
                     return updatePost(request, env, postId);
                 }
-
                 if (method === 'GET' && !isComments && !isLikes && !isLiked) {
                     return getPost(request, env, postId);
                 }
-
                 if (method === 'DELETE' && !isComments && !isLikes && !isLiked) {
                     return deletePost(request, env, postId);
                 }
-
-                // ===== COMMENTS =====
                 if (isComments && method === 'GET') {
                     return getComments(request, env, postId);
                 }
-                
                 if (isComments && method === 'POST') {
                     return createComment(request, env, postId);
                 }
-
-                // ===== LIKES =====
                 if (isLikes && method === 'POST') {
                     return likePost(request, env, postId);
                 }
@@ -162,20 +149,18 @@ export default {
                 }
             }
 
-            // ===== REPLIES =====
+            // ===== REPLIES & DELETE COMMENT =====
             if (path.startsWith('/api/comments/') && path.includes('/replies') && method === 'GET') {
                 const commentId = path.split('/')[3];
                 return getReplies(request, env, commentId);
             }
-
-            // ===== DELETE COMMENT =====
             if (path.startsWith('/api/comments/') && method === 'DELETE') {
                 const commentId = path.split('/')[3];
                 return deleteComment(request, env, commentId);
             }
 
             // ============================================================
-            // NOTIFICATIONS ROUTES
+            // NOTIFICATIONS ROUTES (আগের মতো)
             // ============================================================
             if (path === '/api/notifications' && method === 'GET') {
                 return getNotifications(request, env);
@@ -198,7 +183,7 @@ export default {
             }
 
             // ============================================================
-            // TOOLS ROUTES
+            // TOOLS & ADS (আগের মতো)
             // ============================================================
             if (path === '/api/tools' && method === 'GET') {
                 return getTools(request, env);
@@ -210,20 +195,15 @@ export default {
                 const toolId = path.split('/')[3];
                 return deleteTool(request, env, toolId);
             }
-
             if (path === '/api/tools_ads' && method === 'GET') {
                 return getToolsAds(request, env);
             }
-
-            // ============================================================
-            // ADS ROUTES
-            // ============================================================
             if (path === '/api/ads' && method === 'GET') {
                 return getAds(request, env);
             }
 
             // ============================================================
-            // P2P ROUTES (Peer-to-Peer Chat)
+            // P2P ROUTES (নতুন)
             // ============================================================
             if (path === '/api/p2p/create-room' && method === 'POST') {
                 return handleCreateRoom(request, env);
@@ -240,7 +220,22 @@ export default {
             if (path === '/api/p2p/delete-room' && method === 'POST') {
                 return handleDeleteRoom(request, env);
             }
-            // WebSocket endpoint for real-time signaling
+            if (path === '/api/p2p/signal' && method === 'POST') {
+                return handleSaveSignal(request, env);
+            }
+            if (path === '/api/p2p/signals' && method === 'GET') {
+                return handleGetSignals(request, env);
+            }
+            if (path === '/api/p2p/approve' && method === 'POST') {
+                return handleApproveUser(request, env);
+            }
+            if (path === '/api/p2p/kick' && method === 'POST') {
+                return handleKickUser(request, env);
+            }
+            if (path === '/api/p2p/participants' && method === 'GET') {
+                return handleGetParticipants(request, env);
+            }
+            // WebSocket (ঐচ্ছিক)
             if (path === '/api/p2p/ws' && method === 'GET') {
                 return handleP2PWebSocket(request, env);
             }

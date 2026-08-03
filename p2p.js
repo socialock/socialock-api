@@ -1,5 +1,5 @@
 // ============================================================
-// 📁 p2p.js - P2P Signaling Server & API (Worker)
+// 📁 p2p.js - P2P Signaling Server & API (Complete)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
@@ -112,7 +112,7 @@ export async function handleJoinRoom(request, env) {
 }
 
 // ============================================================
-// ৩. অ্যাক্টিভ রুম লিস্ট
+// ৩. অ্যাক্টিভ রুম লিস্ট (অটো ক্লিনআপ সহ)
 // ============================================================
 export async function handleGetRooms(request, env) {
     try {
@@ -178,6 +178,7 @@ export async function handleDeleteRoom(request, env) {
 
         await run(env, `DELETE FROM p2p_participants WHERE room_id = ?`, [room_id]);
         await run(env, `DELETE FROM p2p_kicks WHERE room_id = ?`, [room_id]);
+        await run(env, `DELETE FROM p2p_signals WHERE room_id = ?`, [room_id]);
         await run(env, `DELETE FROM p2p_rooms WHERE room_id = ? AND host_id = ?`, [room_id, host_id]);
 
         return Response.json({ success: true }, { headers: corsHeaders });
@@ -188,110 +189,165 @@ export async function handleDeleteRoom(request, env) {
 }
 
 // ============================================================
-// ৬. WebSocket Signaling (হ্যান্ডশেক ও ডেটা রিলে)
+// ৬. সিগন্যাল সেভ (HTTP POST)
+// ============================================================
+export async function handleSaveSignal(request, env) {
+    try {
+        const body = await request.json();
+        const { room_id, from, to, data } = body;
+
+        if (!room_id || !from || !to || !data) {
+            return Response.json({ success: false, error: 'Missing fields' }, { status: 400, headers: corsHeaders });
+        }
+
+        const now = Date.now();
+        await run(env,
+            `INSERT INTO p2p_signals (room_id, to_user_id, from_user_id, data, created_at) VALUES (?, ?, ?, ?, ?)`,
+            [room_id, to, from, JSON.stringify(data), now]
+        );
+
+        // পুরনো সিগন্যাল (৩০ সেকেন্ডের বেশি) ডিলিট করুন
+        await run(env,
+            `DELETE FROM p2p_signals WHERE created_at < ?`,
+            [now - 30000]
+        );
+
+        return Response.json({ success: true }, { headers: corsHeaders });
+
+    } catch (error) {
+        return Response.json({ success: false, error: error.message }, { status: 500, headers: corsHeaders });
+    }
+}
+
+// ============================================================
+// ৭. সিগন্যাল পোল (HTTP GET)
+// ============================================================
+export async function handleGetSignals(request, env) {
+    try {
+        const url = new URL(request.url);
+        const roomId = url.searchParams.get('room_id');
+        const userId = url.searchParams.get('user_id');
+
+        if (!roomId || !userId) {
+            return Response.json({ success: false, error: 'Missing room_id or user_id' }, { status: 400, headers: corsHeaders });
+        }
+
+        const signals = await query(env,
+            `SELECT from_user_id, data FROM p2p_signals WHERE room_id = ? AND to_user_id = ? ORDER BY created_at ASC`,
+            [roomId, userId]
+        );
+
+        // সিগন্যাল পড়ার পর ডিলিট করুন (একবার পড়া হলে আর দরকার নেই)
+        if (signals.results.length > 0) {
+            await run(env,
+                `DELETE FROM p2p_signals WHERE room_id = ? AND to_user_id = ?`,
+                [roomId, userId]
+            );
+        }
+
+        const result = signals.results.map(row => ({
+            from: row.from_user_id,
+            data: JSON.parse(row.data)
+        }));
+
+        return Response.json({ success: true, data: result }, { headers: corsHeaders });
+
+    } catch (error) {
+        return Response.json({ success: false, error: error.message }, { status: 500, headers: corsHeaders });
+    }
+}
+
+// ============================================================
+// ৮. অ্যাপ্রুভ ইউজার
+// ============================================================
+export async function handleApproveUser(request, env) {
+    try {
+        const body = await request.json();
+        const { room_id, host_id, user_id } = body;
+
+        // চেক করুন host_id মিলে কিনা
+        const room = await query(env,
+            `SELECT host_id FROM p2p_rooms WHERE room_id = ? AND is_active = 1`,
+            [room_id]
+        );
+        if (room.results.length === 0 || room.results[0].host_id !== host_id) {
+            return Response.json({ success: false, error: 'Unauthorized' }, { status: 403, headers: corsHeaders });
+        }
+
+        await run(env,
+            `UPDATE p2p_participants SET status = 'approved' WHERE room_id = ? AND user_id = ?`,
+            [room_id, user_id]
+        );
+
+        return Response.json({ success: true }, { headers: corsHeaders });
+
+    } catch (error) {
+        return Response.json({ success: false, error: error.message }, { status: 500, headers: corsHeaders });
+    }
+}
+
+// ============================================================
+// ৯. কিক ইউজার
+// ============================================================
+export async function handleKickUser(request, env) {
+    try {
+        const body = await request.json();
+        const { room_id, host_id, user_id } = body;
+
+        const room = await query(env,
+            `SELECT host_id FROM p2p_rooms WHERE room_id = ? AND is_active = 1`,
+            [room_id]
+        );
+        if (room.results.length === 0 || room.results[0].host_id !== host_id) {
+            return Response.json({ success: false, error: 'Unauthorized' }, { status: 403, headers: corsHeaders });
+        }
+
+        // কিক টেবিলে যোগ করুন
+        await run(env,
+            `INSERT OR REPLACE INTO p2p_kicks (room_id, user_id) VALUES (?, ?)`,
+            [room_id, user_id]
+        );
+        // পার্টিসিপ্যান্ট থেকে সরান
+        await run(env,
+            `DELETE FROM p2p_participants WHERE room_id = ? AND user_id = ?`,
+            [room_id, user_id]
+        );
+
+        return Response.json({ success: true }, { headers: corsHeaders });
+
+    } catch (error) {
+        return Response.json({ success: false, error: error.message }, { status: 500, headers: corsHeaders });
+    }
+}
+
+// ============================================================
+// ১০. পার্টিসিপ্যান্ট লিস্ট (হোস্টের জন্য)
+// ============================================================
+export async function handleGetParticipants(request, env) {
+    try {
+        const url = new URL(request.url);
+        const roomId = url.searchParams.get('room_id');
+
+        if (!roomId) {
+            return Response.json({ success: false, error: 'Missing room_id' }, { status: 400, headers: corsHeaders });
+        }
+
+        const participants = await query(env,
+            `SELECT user_id, user_name, status FROM p2p_participants WHERE room_id = ? ORDER BY joined_at ASC`,
+            [roomId]
+        );
+
+        return Response.json({ success: true, data: participants.results }, { headers: corsHeaders });
+
+    } catch (error) {
+        return Response.json({ success: false, error: error.message }, { status: 500, headers: corsHeaders });
+    }
+}
+
+// ============================================================
+// ১১. WebSocket (ঐচ্ছিক – ডেমোর জন্য HTTP Polling-ই ভালো)
 // ============================================================
 export async function handleP2PWebSocket(request, env) {
-    const url = new URL(request.url);
-    const roomId = url.searchParams.get('roomId');
-    const userId = url.searchParams.get('userId');
-    const userName = url.searchParams.get('userName');
-
-    if (!roomId || !userId || !userName) {
-        return new Response('Missing roomId, userId or userName', { status: 400 });
-    }
-
-    // WebSocket upgrade handle
-    const upgradeHeader = request.headers.get('Upgrade');
-    if (upgradeHeader !== 'websocket') {
-        return new Response('Expected WebSocket', { status: 400 });
-    }
-
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-
-    // রুমের ডেটা লোড করুন (ভেরিফাই)
-    const roomData = await query(env,
-        `SELECT r.host_id, r.token, p.status FROM p2p_rooms r 
-         LEFT JOIN p2p_participants p ON r.room_id = p.room_id AND p.user_id = ? 
-         WHERE r.room_id = ? AND r.is_active = 1`,
-        [userId, roomId]
-    );
-
-    if (roomData.results.length === 0) {
-        server.accept();
-        server.send(JSON.stringify({ type: 'error', message: 'Room not found or inactive' }));
-        server.close();
-        return new Response(null, { status: 101, webSocket: client });
-    }
-
-    const hostId = roomData.results[0].host_id;
-    const participantStatus = roomData.results[0].status || 'pending';
-
-    // যদি কিক করা ইউজার হয়
-    const kicked = await query(env,
-        `SELECT user_id FROM p2p_kicks WHERE room_id = ? AND user_id = ?`,
-        [roomId, userId]
-    );
-    if (kicked.results.length > 0) {
-        server.accept();
-        server.send(JSON.stringify({ type: 'error', message: 'You are kicked from this room' }));
-        server.close();
-        return new Response(null, { status: 101, webSocket: client });
-    }
-
-    // WebSocket সংযোগ স্থাপন
-    server.accept();
-
-    // হোস্ট বা মেম্বার অনুযায়ী রোল সেট
-    const isHost = (userId === hostId);
-
-    // রুমের সব সক্রিয় সংযোগ ট্র্যাক করার জন্য (আমরা সিম্পল মেমরি ব্যবহার করছি, প্রোডাকশনে DO/ক্যাশ লাগবে)
-    // যেহেতু Worker stateless, আমরা KV বা D1-এ WebSocket সংযোগ রাখতে পারি না।
-    // বাস্তবায়নের জন্য Cloudflare Durable Objects ভালো, কিন্তু সেটা কনফিগ করতে হবে।
-    // আমরা এখানে সিম্পল HTTP Polling বা WebSocket-এ সংযোগগুলি ম্যানেজ করার জন্য গ্লোবাল ম্যাপ ব্যবহার করছি।
-    // (Durable Objects ছাড়া স্কেল করা কঠিন, কিন্তু ডেমোর জন্য ঠিক আছে)
-
-    // সংযোগ হ্যান্ডেল
-    server.addEventListener('message', async (event) => {
-        try {
-            const msg = JSON.parse(event.data);
-            
-            // ===== Signaling SDP / ICE =====
-            if (msg.type === 'signal') {
-                // ব্রডকাস্ট বা টার্গেটেড ইউজার
-                const target = msg.target || 'all';
-                // এখানে আমরা সব ক্লায়েন্টে ব্রডকাস্ট করছি (যেহেতু একক Worker)
-                // বাস্তবে signalling server এ কানেকশনগুলো ট্র্যাক রাখতে হবে।
-                // ডেমোতে আমরা মেসেজ রিলে করছি।
-                
-                // রুমের অন্য সদস্যদের খুঁজে বার করা (তাদের WebSocket নেই, তাই তারা পাবে না)
-                // এখানে আমরা HTTP রিলে ব্যবহার করব (Polling) অথবা Durable Objects।
-                // যেহেতু আমরা WebSocket ব্যবহার করছি, আমরা শুধু কানেক্টেড ক্লায়েন্টদের মধ্যে ব্রডকাস্ট করতে পারি
-                // কিন্তু Worker Stateless, তাই অন্য কানেকশন আমরা পাই না।
-                // কাজেই, আমরা শুধু ক্লায়েন্টকে বলব 'কানেক্টেড' এবং ওয়েবআরটিসি সিগন্যালিং HTTP POST দিয়ে করব (Polling)
-                // অথবা Durable Objects ব্যবহার করব।
-                // আমি এখানে সব signalling HTTP POST দিয়ে করব (Polling) এবং WebSocket শুধু notify/keepalive জন্য রাখব।
-                // যাইহোক, ব্যবহারকারী 'পিয়ার টু পিয়ার' চেয়েছে, তাই সিগন্যালিং HTTP হলেও চলবে।
-                // আমি WebSocket-কেই সিগন্যালিং এর জন্য ব্যবহার করছি, কিন্তু কানেকশন ট্র্যাক করতে D1 ব্যবহার করি।
-                // চলুন সহজ রাখি: WebSocket দিয়ে SDP এক্সচেঞ্জ। কানেকশন ট্র্যাক করতে D1 ব্যবহার করি না, বরং সব কানেকশন এই ওয়ার্কার ইনস্ট্যান্সেই থাকে।
-                // যদি স্কেল করতে হয়, DO লাগবেই।
-                // ডেমোতে আমরা ধরে নিচ্ছি একই ওয়ার্কার ইনস্ট্যান্সে সব কানেকশন আছে (Wrangler dev এ ঠিক আছে)।
-                // প্রোডাকশনে Durable Objects লাগবে।
-                // আমি এখানে সিম্পল ব্রডকাস্ট ডেমো দিচ্ছি।
-            }
-
-        } catch (e) {
-            console.error('WebSocket Error:', e);
-        }
-    });
-
-    server.addEventListener('close', async () => {
-        // ইউজার ডিসকানেক্ট
-        if (isHost) {
-            // হোস্ট ডিসকানেক্ট করলে রুম ডিলিটের জন্য ৫ মিনিট টাইমার শুরু হয় (হার্টবিট বন্ধ)
-            // heartbeat ফাংশন দেখে নেয়, তাই এখানে কিছু করছি না
-        }
-    });
-
-    return new Response(null, { status: 101, webSocket: client });
+    // ডেমোতে আমরা WebSocket ব্যবহার করছি না – HTTP Polling ব্যবহার করছি
+    return new Response('WebSocket not implemented. Use HTTP polling.', { status: 501 });
 }
