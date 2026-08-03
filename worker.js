@@ -28,6 +28,18 @@ import {
     handleP2PWebSocket
 } from './p2p.js';
 
+// ===== Live Imports =====
+import {
+    handleCreateLive,
+    handleJoinLive,
+    handleGetLiveRooms,
+    handleLiveParticipants,
+    handleLiveBan,
+    handleDeleteLive,
+    handleSaveLiveSignal,
+    handleGetLiveSignals
+} from './live.js';
+
 export default {
     async fetch(request, env) {
         // CORS Preflight
@@ -62,7 +74,7 @@ export default {
             }
 
             // ============================================================
-            // USER ROUTES (আগের মতো)
+            // USER ROUTES
             // ============================================================
             if (path === '/api/users/search' && method === 'GET') {
                 return searchUsers(request, env);
@@ -108,7 +120,7 @@ export default {
             }
 
             // ============================================================
-            // POST ROUTES (আগের মতো)
+            // POST ROUTES
             // ============================================================
             if (path === '/api/posts' && method === 'GET') {
                 return getPosts(request, env);
@@ -160,7 +172,7 @@ export default {
             }
 
             // ============================================================
-            // NOTIFICATIONS ROUTES (আগের মতো)
+            // NOTIFICATIONS ROUTES
             // ============================================================
             if (path === '/api/notifications' && method === 'GET') {
                 return getNotifications(request, env);
@@ -183,7 +195,7 @@ export default {
             }
 
             // ============================================================
-            // TOOLS & ADS (আগের মতো)
+            // TOOLS & ADS
             // ============================================================
             if (path === '/api/tools' && method === 'GET') {
                 return getTools(request, env);
@@ -203,7 +215,7 @@ export default {
             }
 
             // ============================================================
-            // P2P ROUTES (নতুন)
+            // P2P ROUTES
             // ============================================================
             if (path === '/api/p2p/create-room' && method === 'POST') {
                 return handleCreateRoom(request, env);
@@ -235,9 +247,36 @@ export default {
             if (path === '/api/p2p/participants' && method === 'GET') {
                 return handleGetParticipants(request, env);
             }
-            // WebSocket (ঐচ্ছিক)
             if (path === '/api/p2p/ws' && method === 'GET') {
                 return handleP2PWebSocket(request, env);
+            }
+
+            // ============================================================
+            // LIVE ROUTES
+            // ============================================================
+            if (path === '/api/live/create' && method === 'POST') {
+                return handleCreateLive(request, env);
+            }
+            if (path === '/api/live/join' && method === 'POST') {
+                return handleJoinLive(request, env);
+            }
+            if (path === '/api/live/rooms' && method === 'GET') {
+                return handleGetLiveRooms(request, env);
+            }
+            if (path === '/api/live/participants' && method === 'GET') {
+                return handleLiveParticipants(request, env);
+            }
+            if (path === '/api/live/ban' && method === 'POST') {
+                return handleLiveBan(request, env);
+            }
+            if (path === '/api/live/delete-room' && method === 'POST') {
+                return handleDeleteLive(request, env);
+            }
+            if (path === '/api/live/signal' && method === 'POST') {
+                return handleSaveLiveSignal(request, env);
+            }
+            if (path === '/api/live/signals' && method === 'GET') {
+                return handleGetLiveSignals(request, env);
             }
 
             // ============================================================
