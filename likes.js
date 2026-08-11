@@ -34,7 +34,7 @@ export async function likePost(request, env, postId) {
 
     // Get post owner info
     const post = await query(env,
-      'SELECT user_id, username, content FROM posts WHERE id = ?',
+      'SELECT user_id, content FROM posts WHERE id = ?',
       [postId]
     );
 
@@ -59,14 +59,14 @@ export async function likePost(request, env, postId) {
       [postId]
     );
 
-    // ✅ Create notification (only if not owner)
+    // Create notification (only if not owner)
     if (postOwnerId !== user_id) {
       await createNotification(env, {
         user_id: postOwnerId,
         actor_id: user_id,
         actor_username: username || 'User',
         type: 'like',
-        post_id: postId,
+        post_id: parseInt(postId),
         post_content: postContent
       });
     }

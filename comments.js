@@ -5,6 +5,7 @@
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
 import { createNotification } from './notifications.js';
+import { isBlocked } from './blocks.js';
 
 // ===== GET COMMENTS =====
 export async function getComments(request, env, postId) {
@@ -68,9 +69,15 @@ export async function createComment(request, env, postId) {
     const postOwnerId = post.results[0].user_id;
     const postContent = post.results[0].content;
 
+    if (await isBlocked(env, user_id, postOwnerId)) {
+      return Response.json({
+        success: false,
+        error: 'You are unable to comment on this post'
+      }, { status: 403, headers: corsHeaders });
+    }
+
     let notificationUserId = postOwnerId;
     let notificationType = 'comment';
-    let commentContent = content;
     let parentCommentContent = null;
 
     // If reply, get parent comment info
@@ -107,14 +114,14 @@ export async function createComment(request, env, postId) {
       );
     }
 
-    // ✅ Create notification
+    // Create notification
     if (notificationUserId !== user_id) {
       await createNotification(env, {
         user_id: notificationUserId,
         actor_id: user_id,
         actor_username: username,
         type: notificationType,
-        post_id: postId,
+        post_id: parseInt(postId),
         post_content: postContent,
         comment_id: parent_comment_id || null,
         comment_content: parentCommentContent,

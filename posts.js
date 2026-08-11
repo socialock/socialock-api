@@ -4,16 +4,32 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import { getBearerToken, verifyJWT } from './security.js';
 
 // ===== GET ALL POSTS =====
+// Respects each author's privacy setting: 'followers'-only authors are
+// hidden from the feed unless the viewer follows them (or is the author).
 export async function getPosts(request, env) {
   try {
+    let viewerId = null;
+    const token = getBearerToken(request);
+    if (token) {
+      try {
+        const payload = await verifyJWT(token, env);
+        viewerId = payload.sub || null;
+      } catch (e) { /* anonymous viewer - public posts only */ }
+    }
+
     const result = await query(env,
       `SELECT p.*, u.is_verified 
        FROM posts p 
        LEFT JOIN users u ON p.user_id = u.id 
+       WHERE (u.privacy IS NULL OR u.privacy != 'followers' OR p.user_id = ? OR EXISTS (
+         SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = p.user_id
+       ))
        ORDER BY p.created_at DESC 
-       LIMIT 50`
+       LIMIT 50`,
+      [viewerId, viewerId]
     );
 
     return Response.json({ 

@@ -4,6 +4,8 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import { requireSelf } from './security.js';
+import { isBlocked } from './blocks.js';
 
 // ===== FOLLOW USER =====
 export async function followUser(request, env) {
@@ -23,6 +25,19 @@ export async function followUser(request, env) {
         success: false, 
         error: 'You cannot follow yourself' 
       }, { status: 400, headers: corsHeaders });
+    }
+
+    try {
+      await requireSelf(request, env, follower_id);
+    } catch (authResponse) {
+      return authResponse;
+    }
+
+    if (await isBlocked(env, follower_id, following_id)) {
+      return Response.json({
+        success: false,
+        error: 'Unable to follow this user'
+      }, { status: 403, headers: corsHeaders });
     }
 
     const existing = await query(env,

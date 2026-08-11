@@ -1,9 +1,27 @@
 // ============================================================
-// 📁 auth.js - Authentication API (Complete)
+// 📁 auth.js - Authentication API (Complete + JWT + Security)
 // ============================================================
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import {
+  signJWT,
+  requireAuth,
+  isValidUsername,
+  isValidEmail,
+  isValidPassword,
+  verifyFirebaseIdToken,
+  USERNAME_MAX_LENGTH
+} from './security.js';
+
+// ===== Helper: SHA-256 hash =====
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // ============================================================
 // REGISTER
@@ -14,68 +32,73 @@ export async function handleRegister(request, env) {
     const { id, username, email, password, country } = body;
 
     if (!id || !username || !email || !password) {
-      return Response.json({ 
-        success: false, 
-        error: 'Missing required fields' 
+      return Response.json({
+        success: false,
+        error: 'Missing required fields'
       }, { status: 400, headers: corsHeaders });
     }
 
     // Validate username
-    if (!/^[A-Za-z0-9]+$/.test(username)) {
-      return Response.json({ 
-        success: false, 
-        error: 'Username can only contain letters and numbers' 
+    if (!isValidUsername(username)) {
+      return Response.json({
+        success: false,
+        error: `Username must be 2-${USERNAME_MAX_LENGTH} characters and contain only letters, numbers, and underscores`
       }, { status: 400, headers: corsHeaders });
     }
 
-    if (username.length > 10) {
-      return Response.json({ 
-        success: false, 
-        error: 'Username cannot exceed 10 characters' 
+    // Validate email
+    if (!isValidEmail(email)) {
+      return Response.json({
+        success: false,
+        error: 'Please provide a valid email address'
       }, { status: 400, headers: corsHeaders });
     }
 
-    // Check duplicates
-    const existingUser = await query(env, 
-      'SELECT id FROM users WHERE username = ? OR email = ?', [username, email]
-    );
-    
-    if (existingUser.results.length > 0) {
-      const isUsername = await query(env, 'SELECT id FROM users WHERE username = ?', [username]);
-      if (isUsername.results.length > 0) {
-        return Response.json({ 
-          success: false, 
-          error: 'Username already taken' 
-        }, { status: 400, headers: corsHeaders });
-      }
-      return Response.json({ 
-        success: false, 
-        error: 'Email already registered' 
+    // Validate password
+    if (!isValidPassword(password)) {
+      return Response.json({
+        success: false,
+        error: 'Password must be at least 6 characters'
       }, { status: 400, headers: corsHeaders });
     }
 
-    // SHA-256 hash password
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashedPassword = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    // Check duplicates (unique username AND unique email)
+    const existingUsername = await query(env, 'SELECT id FROM users WHERE username = ?', [username]);
+    if (existingUsername.results.length > 0) {
+      return Response.json({
+        success: false,
+        error: 'Username already taken'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    const existingEmail = await query(env, 'SELECT id FROM users WHERE email = ?', [email]);
+    if (existingEmail.results.length > 0) {
+      return Response.json({
+        success: false,
+        error: 'Email already registered'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    const hashedPassword = await hashPassword(password);
 
     await run(env,
-      `INSERT INTO users (id, username, email, password, country, role, created_at) 
-       VALUES (?, ?, ?, ?, ?, 'user', ?)`,
+      `INSERT INTO users (id, username, email, password, country, role, privacy, created_at) 
+       VALUES (?, ?, ?, ?, ?, 'user', 'public', ?)`,
       [id, username, email, hashedPassword, country || '', new Date().toISOString()]
     );
 
-    return Response.json({ 
-      success: true, 
-      message: 'User registered successfully' 
+    const token = await signJWT({ sub: id, username }, env);
+
+    return Response.json({
+      success: true,
+      message: 'User registered successfully',
+      data: { token, user: { id, username, email, country } }
     }, { headers: corsHeaders });
 
   } catch (error) {
-    return Response.json({ 
-      success: false, 
-      error: error.message 
+    return Response.json({
+      success: false,
+      error: error.message
     }, { status: 500, headers: corsHeaders });
   }
 }
@@ -89,18 +112,13 @@ export async function handleLogin(request, env) {
     const { username, password } = body;
 
     if (!username || !password) {
-      return Response.json({ 
-        success: false, 
-        error: 'Missing credentials' 
+      return Response.json({
+        success: false,
+        error: 'Missing credentials'
       }, { status: 400, headers: corsHeaders });
     }
 
-    // SHA-256 hash password
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashedPassword = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const hashedPassword = await hashPassword(password);
 
     // Find user by username
     let user = await query(env,
@@ -117,34 +135,40 @@ export async function handleLogin(request, env) {
     }
 
     if (user.results.length === 0) {
-      return Response.json({ 
-        success: false, 
-        error: 'Invalid credentials' 
+      return Response.json({
+        success: false,
+        error: 'Invalid credentials'
       }, { status: 401, headers: corsHeaders });
     }
 
-    return Response.json({ 
-      success: true, 
-      data: { user: user.results[0] }
+    const u = user.results[0];
+    const token = await signJWT({ sub: u.id, username: u.username }, env);
+
+    return Response.json({
+      success: true,
+      data: { user: u, token }
     }, { headers: corsHeaders });
 
   } catch (error) {
-    return Response.json({ 
-      success: false, 
-      error: error.message 
+    return Response.json({
+      success: false,
+      error: error.message
     }, { status: 500, headers: corsHeaders });
   }
 }
 
 // ============================================================
-// RESET PASSWORD (Daily limit 5)
+// RESET PASSWORD (Daily limit 5) - request-a-reset-link gate.
+// The actual email delivery + link handling is done by Firebase
+// Auth (sendPasswordResetEmail / confirmPasswordReset) on the
+// frontend; this endpoint just rate-limits reset requests per email.
 // ============================================================
 export async function handleResetPassword(request, env) {
   try {
     const body = await request.json();
     const { email } = body;
 
-    if (!email || !email.includes('@')) {
+    if (!email || !isValidEmail(email)) {
       return Response.json({
         success: false,
         error: 'Invalid email address'
@@ -153,7 +177,6 @@ export async function handleResetPassword(request, env) {
 
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-    // 1. Get current count
     const existing = await query(env,
       `SELECT count FROM password_resets WHERE email = ? AND date = ?`,
       [email, today]
@@ -164,7 +187,6 @@ export async function handleResetPassword(request, env) {
       currentCount = existing.results[0].count;
     }
 
-    // 2. Check limit (max 5 per day)
     if (currentCount >= 5) {
       return Response.json({
         success: false,
@@ -172,7 +194,6 @@ export async function handleResetPassword(request, env) {
       }, { status: 429, headers: corsHeaders });
     }
 
-    // 3. Increment or insert
     if (existing.results.length > 0) {
       await run(env,
         `UPDATE password_resets SET count = count + 1 WHERE email = ? AND date = ?`,
@@ -188,6 +209,186 @@ export async function handleResetPassword(request, env) {
     return Response.json({
       success: true,
       message: 'Reset request allowed'
+    }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({
+      success: false,
+      error: error.message
+    }, { status: 500, headers: corsHeaders });
+  }
+}
+
+// ============================================================
+// SYNC PASSWORD AFTER FIREBASE RESET
+// The actual "forgot password" reset is completed on the client
+// via Firebase (sendPasswordResetEmail -> confirmPasswordReset).
+// Since the user isn't holding a session yet at that point, we
+// can't require a JWT here. As defense-in-depth we only allow the
+// sync if a reset was actually requested for this email today
+// (tracked by handleResetPassword), and the endpoint is rate
+// limited like the other auth routes.
+// ============================================================
+export async function handleSyncPassword(request, env) {
+  try {
+    const body = await request.json();
+    const { email, newPassword } = body;
+
+    if (!email || !isValidEmail(email) || !isValidPassword(newPassword)) {
+      return Response.json({
+        success: false,
+        error: 'Invalid request'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const resetRequest = await query(env,
+      'SELECT count FROM password_resets WHERE email = ? AND date = ?',
+      [email, today]
+    );
+
+    if (resetRequest.results.length === 0 || resetRequest.results[0].count < 1) {
+      return Response.json({
+        success: false,
+        error: 'No pending reset request found for this email'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    const user = await query(env, 'SELECT id FROM users WHERE email = ?', [email]);
+    if (user.results.length === 0) {
+      return Response.json({ success: false, error: 'Account not found' }, { status: 404, headers: corsHeaders });
+    }
+
+    const newHashed = await hashPassword(newPassword);
+    await run(env,
+      'UPDATE users SET password = ?, updated_at = ? WHERE email = ?',
+      [newHashed, new Date().toISOString(), email]
+    );
+
+    return Response.json({ success: true }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({
+      success: false,
+      error: error.message
+    }, { status: 500, headers: corsHeaders });
+  }
+}
+
+// ============================================================
+// ISSUE SESSION TOKEN (after client already authenticated via Firebase)
+// The frontend authenticates the user's identity with Firebase Auth
+// (email/password or Google) and then exchanges the known, existing
+// user id for a signed app-level JWT used to authorize all
+// sensitive settings actions (change password/email/username,
+// block/unblock, privacy).
+// ============================================================
+export async function handleIssueToken(request, env) {
+  try {
+    const body = await request.json();
+    const { id, idToken } = body;
+
+    if (!id || !idToken) {
+      return Response.json({
+        success: false,
+        error: 'User id and Firebase ID token are required'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    // Verify the Firebase ID token is genuine and belongs to this user id
+    // before minting our own app-level session JWT.
+    try {
+      const firebasePayload = await verifyFirebaseIdToken(idToken);
+      if (firebasePayload.sub !== id) {
+        throw new Error('Token does not match requested user');
+      }
+    } catch (verifyErr) {
+      return Response.json({
+        success: false,
+        error: 'Could not verify your session. Please log in again.'
+      }, { status: 401, headers: corsHeaders });
+    }
+
+    const result = await query(env, 'SELECT id, username, email, country, role FROM users WHERE id = ?', [id]);
+    if (result.results.length === 0) {
+      return Response.json({
+        success: false,
+        error: 'User not found'
+      }, { status: 404, headers: corsHeaders });
+    }
+
+    const u = result.results[0];
+    const token = await signJWT({ sub: u.id, username: u.username }, env);
+
+    return Response.json({
+      success: true,
+      data: { token, user: u }
+    }, { headers: corsHeaders });
+
+  } catch (error) {
+    return Response.json({
+      success: false,
+      error: error.message
+    }, { status: 500, headers: corsHeaders });
+  }
+}
+
+// ============================================================
+// CHANGE PASSWORD (requires current password + valid session)
+// ============================================================
+export async function handleChangePassword(request, env) {
+  try {
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
+    }
+
+    const body = await request.json();
+    const { oldPassword, newPassword } = body;
+
+    if (!oldPassword || !newPassword) {
+      return Response.json({
+        success: false,
+        error: 'Current and new password are required'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    if (!isValidPassword(newPassword)) {
+      return Response.json({
+        success: false,
+        error: 'New password must be at least 6 characters'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    const userId = auth.sub;
+    const userResult = await query(env, 'SELECT password FROM users WHERE id = ?', [userId]);
+
+    if (userResult.results.length === 0) {
+      return Response.json({
+        success: false,
+        error: 'User not found'
+      }, { status: 404, headers: corsHeaders });
+    }
+
+    const oldHashed = await hashPassword(oldPassword);
+    if (userResult.results[0].password !== oldHashed) {
+      return Response.json({
+        success: false,
+        error: 'Current password is incorrect'
+      }, { status: 401, headers: corsHeaders });
+    }
+
+    const newHashed = await hashPassword(newPassword);
+    await run(env,
+      'UPDATE users SET password = ?, updated_at = ? WHERE id = ?',
+      [newHashed, new Date().toISOString(), userId]
+    );
+
+    return Response.json({
+      success: true,
+      message: 'Password updated successfully'
     }, { headers: corsHeaders });
 
   } catch (error) {

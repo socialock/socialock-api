@@ -3,8 +3,8 @@
 // ============================================================
 
 import { corsHeaders, handleCORS } from './cors.js';
-import { handleRegister, handleLogin, handleResetPassword } from './auth.js';
-import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools } from './users.js';
+import { handleRegister, handleLogin, handleResetPassword, handleChangePassword, handleSyncPassword, handleIssueToken } from './auth.js';
+import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools, updateUsername, updateEmail, updatePrivacy } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
 import { getComments, createComment, deleteComment, getReplies } from './comments.js';
 import { likePost, unlikePost, checkLiked } from './likes.js';
@@ -12,6 +12,8 @@ import { followUser, unfollowUser, getFollowers, getFollowing } from './follows.
 import { getNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification, deleteAllNotifications } from './notifications.js';
 import { getTools, createTool, deleteTool, getToolsAds } from './tools.js';
 import { getAds } from './ads.js';
+import { toggleBlockUser, getBlockedUsers, getBlockedUsersDetailed } from './blocks.js';
+import { checkRateLimit, rateLimitResponse, isLegitimateUserAgent, userAgentRejectResponse } from './security.js';
 
 // ===== P2P Imports =====
 import {
@@ -61,6 +63,36 @@ export default {
 
         try {
             // ============================================================
+            // SECURITY: USER-AGENT CHECK (state-changing requests only)
+            // ============================================================
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && !isLegitimateUserAgent(request)) {
+                return userAgentRejectResponse();
+            }
+
+            // ============================================================
+            // SECURITY: RATE LIMITING
+            // ============================================================
+            const isAuthRoute = path.startsWith('/api/auth/');
+            const isSensitiveRoute = path === '/api/users/block' || path.endsWith('/username') ||
+                path.endsWith('/email') || path.endsWith('/privacy');
+
+            if (isAuthRoute) {
+                // Tighter limit on auth endpoints (login/register/reset/change-password brute force protection)
+                if (!checkRateLimit(request, 'auth', 10, 60000)) {
+                    return rateLimitResponse(60);
+                }
+            } else if (isSensitiveRoute) {
+                if (!checkRateLimit(request, 'sensitive', 20, 60000)) {
+                    return rateLimitResponse(60);
+                }
+            } else {
+                // General API rate limit
+                if (!checkRateLimit(request, 'global', 120, 60000)) {
+                    return rateLimitResponse(60);
+                }
+            }
+
+            // ============================================================
             // AUTH ROUTES
             // ============================================================
             if (path === '/api/auth/register' && method === 'POST') {
@@ -71,6 +103,15 @@ export default {
             }
             if (path === '/api/auth/reset-password' && method === 'POST') {
                 return handleResetPassword(request, env);
+            }
+            if (path === '/api/auth/change-password' && method === 'POST') {
+                return handleChangePassword(request, env);
+            }
+            if (path === '/api/auth/sync-password' && method === 'POST') {
+                return handleSyncPassword(request, env);
+            }
+            if (path === '/api/auth/token' && method === 'POST') {
+                return handleIssueToken(request, env);
             }
 
             // ============================================================
@@ -90,7 +131,27 @@ export default {
                 const isFollowers = path.includes('/followers');
                 const isFollowing = path.includes('/following');
                 const isTools = path.includes('/tools');
+                const isBlocked = path.endsWith('/blocked');
+                const isBlockedDetailed = path.endsWith('/blocked/detailed');
+                const isUsername = path.endsWith('/username');
+                const isEmail = path.endsWith('/email');
+                const isPrivacy = path.endsWith('/privacy');
 
+                if (method === 'GET' && isBlockedDetailed) {
+                    return getBlockedUsersDetailed(request, env, userId);
+                }
+                if (method === 'GET' && isBlocked) {
+                    return getBlockedUsers(request, env, userId);
+                }
+                if (method === 'PUT' && isUsername) {
+                    return updateUsername(request, env, userId);
+                }
+                if (method === 'PUT' && isEmail) {
+                    return updateEmail(request, env, userId);
+                }
+                if (method === 'PUT' && isPrivacy) {
+                    return updatePrivacy(request, env, userId);
+                }
                 if (method === 'GET' && isTools) {
                     return getUserTools(request, env, userId);
                 }
@@ -106,7 +167,8 @@ export default {
                 if (method === 'GET' && isFollowing) {
                     return getFollowing(request, env, userId);
                 }
-                if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing && !isTools) {
+                if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing &&
+                    !isTools && !isBlocked && !isBlockedDetailed && !isUsername && !isEmail && !isPrivacy) {
                     return getUser(request, env, userId);
                 }
             }
@@ -117,6 +179,11 @@ export default {
             }
             if (path === '/api/users/follow' && method === 'DELETE') {
                 return unfollowUser(request, env);
+            }
+
+            // ===== BLOCK/UNBLOCK (toggle) =====
+            if (path === '/api/users/block' && method === 'POST') {
+                return toggleBlockUser(request, env);
             }
 
             // ============================================================
