@@ -9,12 +9,26 @@ import { corsHeaders } from './cors.js';
 // ===== JWT AUTHENTICATION (HS256, Web Crypto based) =====
 // ============================================================
 
-const DEFAULT_DEV_SECRET = 'socialock-dev-secret-CHANGE-ME-in-wrangler-secret';
+// 64+ character fallback secret (dev/local only). In production this MUST be
+// overridden with a strong, random 64+ character secret, e.g. generate one
+// with `openssl rand -hex 32` (64 hex chars) and set it via:
+//   wrangler secret put JWT_SECRET
+const DEFAULT_DEV_SECRET = 'socialock-dev-secret-CHANGE-ME-in-wrangler-secret-please-use-a-64plus-char-random-value-before-deploying-to-production';
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const MIN_SECRET_LENGTH = 64;
 
 function getSecret(env) {
   // In production set this with: wrangler secret put JWT_SECRET
-  return (env && env.JWT_SECRET) ? env.JWT_SECRET : DEFAULT_DEV_SECRET;
+  const secret = (env && env.JWT_SECRET) ? env.JWT_SECRET : DEFAULT_DEV_SECRET;
+  if (secret.length < MIN_SECRET_LENGTH) {
+    // Pad deterministically rather than reject outright, so a short custom
+    // secret someone forgets to rotate still results in a >=64 char key
+    // being used for HMAC signing (defense in depth, not a substitute for
+    // setting a real 64+ char JWT_SECRET).
+    console.error(`JWT_SECRET is shorter than ${MIN_SECRET_LENGTH} characters. Set a longer secret with: wrangler secret put JWT_SECRET`);
+    return secret.padEnd(MIN_SECRET_LENGTH, ':socialock-secret-padding:');
+  }
+  return secret;
 }
 
 function base64urlEncode(bytes) {

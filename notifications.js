@@ -36,6 +36,55 @@ export async function createNotification(env, data) {
 }
 
 // ============================================================
+// CREATE OR UPDATE A GROUPED "LIKE" NOTIFICATION
+// ============================================================
+// Mirrors Facebook-style grouping: while the existing like
+// notification for a post is still unread, additional likes just
+// bump its actor_count and refresh the actor/timestamp instead of
+// spawning a new notification per liker.
+// ============================================================
+export async function createOrUpdateLikeNotification(env, data) {
+  try {
+    const { user_id, actor_id, actor_username, post_id, post_content } = data;
+
+    if (!user_id || !actor_id || !actor_username || !post_id) {
+      console.error('Missing required fields for like notification');
+      return false;
+    }
+
+    if (user_id === actor_id) return false;
+
+    const existing = await query(env,
+      `SELECT id FROM notifications
+       WHERE user_id = ? AND post_id = ? AND type = 'like' AND is_read = 0
+       ORDER BY created_at DESC LIMIT 1`,
+      [user_id, post_id]
+    );
+
+    if (existing.results.length > 0) {
+      await run(env,
+        `UPDATE notifications
+         SET actor_id = ?, actor_username = ?, actor_count = actor_count + 1, created_at = ?
+         WHERE id = ?`,
+        [actor_id, actor_username, new Date().toISOString(), existing.results[0].id]
+      );
+      return true;
+    }
+
+    const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+    await run(env,
+      `INSERT INTO notifications (id, user_id, actor_id, actor_username, type, post_id, post_content, actor_count, is_read, created_at)
+       VALUES (?, ?, ?, ?, 'like', ?, ?, 1, 0, ?)`,
+      [id, user_id, actor_id, actor_username, post_id, post_content || null, new Date().toISOString()]
+    );
+    return true;
+  } catch (error) {
+    console.error('Create/update like notification error:', error);
+    return false;
+  }
+}
+
+// ============================================================
 // GET NOTIFICATIONS
 // ============================================================
 export async function getNotifications(request, env) {

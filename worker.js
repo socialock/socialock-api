@@ -4,7 +4,7 @@
 
 import { corsHeaders, handleCORS } from './cors.js';
 import { handleRegister, handleLogin, handleResetPassword, handleChangePassword, handleSyncPassword, handleIssueToken } from './auth.js';
-import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools, updateUsername, updateEmail, updatePrivacy } from './users.js';
+import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools, updateUsername, updateEmail, updatePrivacy, deleteAccount } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
 import { getComments, createComment, deleteComment, getReplies } from './comments.js';
 import { likePost, unlikePost, checkLiked } from './likes.js';
@@ -14,6 +14,7 @@ import { getTools, createTool, deleteTool, getToolsAds } from './tools.js';
 import { getAds } from './ads.js';
 import { toggleBlockUser, getBlockedUsers, getBlockedUsersDetailed } from './blocks.js';
 import { checkRateLimit, rateLimitResponse, isLegitimateUserAgent, userAgentRejectResponse } from './security.js';
+import { createReport } from './reports.js';
 
 // ===== P2P Imports =====
 import {
@@ -73,8 +74,11 @@ export default {
             // SECURITY: RATE LIMITING
             // ============================================================
             const isAuthRoute = path.startsWith('/api/auth/');
+            const isAccountDeleteRoute = method === 'DELETE' && path.startsWith('/api/users/') &&
+                path.split('/').length === 4; // /api/users/:id (no further segments)
             const isSensitiveRoute = path === '/api/users/block' || path.endsWith('/username') ||
-                path.endsWith('/email') || path.endsWith('/privacy');
+                path.endsWith('/email') || path.endsWith('/privacy') || path === '/api/reports' ||
+                isAccountDeleteRoute;
 
             if (isAuthRoute) {
                 // Tighter limit on auth endpoints (login/register/reset/change-password brute force protection)
@@ -136,7 +140,11 @@ export default {
                 const isUsername = path.endsWith('/username');
                 const isEmail = path.endsWith('/email');
                 const isPrivacy = path.endsWith('/privacy');
+                const isPlainUserPath = parts.length === 4; // /api/users/:id exactly
 
+                if (method === 'DELETE' && isPlainUserPath) {
+                    return deleteAccount(request, env, userId);
+                }
                 if (method === 'GET' && isBlockedDetailed) {
                     return getBlockedUsersDetailed(request, env, userId);
                 }
@@ -259,6 +267,13 @@ export default {
                 if (notifId !== 'delete-all') {
                     return deleteNotification(request, env, notifId);
                 }
+            }
+
+            // ============================================================
+            // REPORTS
+            // ============================================================
+            if (path === '/api/reports' && method === 'POST') {
+                return createReport(request, env);
             }
 
             // ============================================================

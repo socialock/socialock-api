@@ -4,7 +4,7 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
-import { createNotification } from './notifications.js';
+import { createOrUpdateLikeNotification } from './notifications.js';
 
 // ===== LIKE POST =====
 export async function likePost(request, env, postId) {
@@ -59,13 +59,12 @@ export async function likePost(request, env, postId) {
       [postId]
     );
 
-    // Create notification (only if not owner)
+    // Create/refresh a grouped like notification (only if not owner)
     if (postOwnerId !== user_id) {
-      await createNotification(env, {
+      await createOrUpdateLikeNotification(env, {
         user_id: postOwnerId,
         actor_id: user_id,
         actor_username: username || 'User',
-        type: 'like',
         post_id: parseInt(postId),
         post_content: postContent
       });
