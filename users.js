@@ -11,7 +11,9 @@ import {
   isValidPassword,
   isValidPrivacy,
   sanitizeText,
-  USERNAME_MAX_LENGTH
+  USERNAME_MAX_LENGTH,
+  getBearerToken,
+  verifyJWT
 } from './security.js';
 
 // ===== SHA-256 hash helper (kept identical to auth.js so hashes match) =====
@@ -24,6 +26,10 @@ async function hashPassword(password) {
 }
 
 // ===== GET USER PROFILE =====
+// `country` is private, like a Gmail recovery detail: it is only ever
+// returned when the caller is viewing their own profile. Every other
+// viewer gets the row with `country` stripped out, regardless of the
+// requested userId.
 export async function getUser(request, env, userId) {
   try {
     const result = await query(env,
@@ -40,9 +46,29 @@ export async function getUser(request, env, userId) {
       }, { status: 404, headers: corsHeaders });
     }
 
+    const userData = { ...result.results[0] };
+
+    // Determine whether the requester is the profile owner. Auth here is
+    // optional (profiles are viewable while logged out), so a missing or
+    // invalid token simply means "not the owner" rather than a 401.
+    let isSelf = false;
+    const token = getBearerToken(request);
+    if (token) {
+      try {
+        const payload = await verifyJWT(token, env);
+        isSelf = payload.sub === userId;
+      } catch (err) {
+        isSelf = false;
+      }
+    }
+
+    if (!isSelf) {
+      delete userData.country;
+    }
+
     return Response.json({ 
       success: true, 
-      data: result.results[0] 
+      data: userData 
     }, { headers: corsHeaders });
 
   } catch (error) {
