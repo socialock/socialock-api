@@ -4,7 +4,7 @@
 
 import { corsHeaders, handleCORS } from './cors.js';
 import { handleRegister, handleLogin, handleResetPassword, handleChangePassword, handleSyncPassword, handleIssueToken } from './auth.js';
-import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools, updateUsername, updateEmail, updatePrivacy, deleteAccount } from './users.js';
+import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools, updateUsername, updateEmail, updatePrivacy, updateCountry, deleteAccount } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
 import { getComments, createComment, deleteComment, getReplies } from './comments.js';
 import { likePost, unlikePost, checkLiked } from './likes.js';
@@ -140,6 +140,7 @@ export default {
                 const isUsername = path.endsWith('/username');
                 const isEmail = path.endsWith('/email');
                 const isPrivacy = path.endsWith('/privacy');
+                const isCountry = path.endsWith('/country');
                 const isPlainUserPath = parts.length === 4; // /api/users/:id exactly
 
                 if (method === 'DELETE' && isPlainUserPath) {
@@ -160,6 +161,9 @@ export default {
                 if (method === 'PUT' && isPrivacy) {
                     return updatePrivacy(request, env, userId);
                 }
+                if (method === 'PUT' && isCountry) {
+                    return updateCountry(request, env, userId);
+                }
                 if (method === 'GET' && isTools) {
                     return getUserTools(request, env, userId);
                 }
@@ -176,7 +180,7 @@ export default {
                     return getFollowing(request, env, userId);
                 }
                 if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing &&
-                    !isTools && !isBlocked && !isBlockedDetailed && !isUsername && !isEmail && !isPrivacy) {
+                    !isTools && !isBlocked && !isBlockedDetailed && !isUsername && !isEmail && !isPrivacy && !isCountry) {
                     return getUser(request, env, userId);
                 }
             }

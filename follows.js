@@ -80,6 +80,12 @@ export async function unfollowUser(request, env) {
       }, { status: 400, headers: corsHeaders });
     }
 
+    try {
+      await requireSelf(request, env, follower_id);
+    } catch (authResponse) {
+      return authResponse;
+    }
+
     await run(env,
       'DELETE FROM follows WHERE follower_id = ? AND following_id = ?',
       [follower_id, following_id]
