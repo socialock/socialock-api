@@ -21,7 +21,7 @@ export async function getPosts(request, env) {
     }
 
     const result = await query(env,
-      `SELECT p.*, u.is_verified 
+      `SELECT p.*, u.username AS username, u.is_verified 
        FROM posts p 
        LEFT JOIN users u ON p.user_id = u.id 
        WHERE (u.privacy IS NULL OR u.privacy != 'followers' OR p.user_id = ? OR EXISTS (
@@ -78,7 +78,7 @@ export async function createPost(request, env) {
 export async function getPost(request, env, postId) {
   try {
     const result = await query(env,
-      `SELECT p.*, u.is_verified 
+      `SELECT p.*, u.username AS username, u.is_verified 
        FROM posts p 
        LEFT JOIN users u ON p.user_id = u.id 
        WHERE p.id = ?`,
