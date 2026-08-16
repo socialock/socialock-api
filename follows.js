@@ -80,18 +80,31 @@ export async function unfollowUser(request, env) {
       }, { status: 400, headers: corsHeaders });
     }
 
+    // IMPORTANT: the authenticated user must be the follower, not the
+    // account being unfollowed. Do not use requireSelf(..., following_id).
+    // This allows a user to remove their own following relationship safely.
     try {
       await requireSelf(request, env, follower_id);
     } catch (authResponse) {
       return authResponse;
     }
 
-    await run(env,
+    if (follower_id === following_id) {
+      return Response.json({
+        success: false,
+        error: 'Invalid follow relationship'
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    const result = await run(env,
       'DELETE FROM follows WHERE follower_id = ? AND following_id = ?',
       [follower_id, following_id]
     );
 
-    return Response.json({ success: true }, { headers: corsHeaders });
+    return Response.json({
+      success: true,
+      deleted: result?.meta?.changes ?? result?.changes ?? 0
+    }, { headers: corsHeaders });
 
   } catch (error) {
     return Response.json({ 
