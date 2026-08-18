@@ -22,24 +22,8 @@ import {
 // ===== Password hashing: PBKDF2-SHA256 =====
 async function hashPassword(password, saltBytes = null) {
   const salt = saltBytes || crypto.getRandomValues(new Uint8Array(16));
-  const key = await crypto.subtle.importKey(
-    'raw', 
-    new TextEncoder().encode(password), 
-    'PBKDF2', 
-    false, 
-    ['deriveBits']
-  );
-  // ✅ Fixed: 120000 → 100000 (Cloudflare Workers max limit)
-  const bits = await crypto.subtle.deriveBits(
-    { 
-      name: 'PBKDF2', 
-      salt, 
-      iterations: 100000, 
-      hash: 'SHA-256' 
-    }, 
-    key, 
-    256
-  );
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, key, 256);
   const bytes = new Uint8Array(bits);
   const hash = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -134,14 +118,19 @@ export async function handleRegister(request, env) {
     }
 
     const passwordData = await hashPassword(password);
+    const now = new Date().toISOString();
 
+    // IMPORTANT: save the password hash + salt in ONE INSERT. The old
+    // implementation inserted the user first and then updated password_salt.
+    // If the security migration was incomplete, that left a half-created user
+    // in D1 and the frontend only saw "Failed to save account data".
+    // The migration must be applied before deployment because password_salt,
+    // is_banned and the ban tables are required by the security layer.
     await run(env,
-      `INSERT INTO users (id, username, email, password, country, role, privacy, created_at) 
-       VALUES (?, ?, ?, ?, ?, 'user', 'public', ?)`,
-      [id, username, normalizedEmail, passwordData.hash, country || '', new Date().toISOString()]
+      `INSERT INTO users (id, username, email, password, password_salt, country, role, privacy, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'user', 'public', ?, ?)`,
+      [id, username, normalizedEmail, passwordData.hash, passwordData.salt, country || '', now, now]
     );
-
-    await run(env, 'UPDATE users SET password_salt = ? WHERE id = ?', [passwordData.salt, id]);
 
     const token = await signJWT({ sub: id, username }, env);
 
@@ -152,9 +141,13 @@ export async function handleRegister(request, env) {
     }, { headers: corsHeaders });
 
   } catch (error) {
+    console.error('Registration failed:', error);
+    const message = /no such column|no such table/i.test(error?.message || '')
+      ? 'Server database migration is incomplete. Run SECURITY_MIGRATION.sql.txt before creating accounts.'
+      : (error?.message || 'Unable to save account data');
     return Response.json({
       success: false,
-      error: error.message
+      error: message
     }, { status: 500, headers: corsHeaders });
   }
 }
@@ -428,7 +421,7 @@ export async function handleChangePassword(request, env) {
     }
 
     const userId = auth.sub;
-    const userResult = await query(env, 'SELECT password, password_salt FROM users WHERE id = ?', [userId]);
+    const userResult = await query(env, 'SELECT password FROM users WHERE id = ?', [userId]);
 
     if (userResult.results.length === 0) {
       return Response.json({
