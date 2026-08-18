@@ -5,7 +5,7 @@
 import { corsHeaders, handleCORS } from './cors.js';
 import { handleRegister, handleLogin, handleResetPassword, handleChangePassword, handleSyncPassword, handleIssueToken } from './auth.js';
 import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools, updateUsername, updateEmail, updatePrivacy, updateCountry, deleteAccount } from './users.js';
-import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
+import { getPosts, createPost, getPost, deletePost } from './posts.js';
 import { getComments, createComment, deleteComment, getReplies } from './comments.js';
 import { likePost, unlikePost, checkLiked } from './likes.js';
 import { followUser, unfollowUser, getFollowers, getFollowing } from './follows.js';
@@ -217,9 +217,10 @@ export default {
                 if (isLiked && method === 'GET') {
                     return checkLiked(request, env, postId);
                 }
-                if (method === 'PATCH' && !isComments && !isLikes && !isLiked) {
-                    return updatePost(request, env, postId);
-                }
+                // NOTE: PATCH /api/posts/:id (raw likes_count/comments_count
+                // overwrite) was removed - it had no auth check and let any
+                // caller set any post's counters to any value. Counters are
+                // maintained automatically by the like/comment endpoints.
                 if (method === 'GET' && !isComments && !isLikes && !isLiked) {
                     return getPost(request, env, postId);
                 }

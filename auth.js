@@ -11,17 +11,10 @@ import {
   isValidEmail,
   isValidPassword,
   verifyFirebaseIdToken,
-  USERNAME_MAX_LENGTH
+  USERNAME_MAX_LENGTH,
+  hashPassword,
+  verifyPassword
 } from './security.js';
-
-// ===== Helper: SHA-256 hash =====
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
 
 // ============================================================
 // REGISTER
@@ -118,19 +111,19 @@ export async function handleLogin(request, env) {
       }, { status: 400, headers: corsHeaders });
     }
 
-    const hashedPassword = await hashPassword(password);
-
-    // Find user by username
+    // Find user by username, falling back to email. Password is now
+    // salted (PBKDF2), so it can no longer be matched with a plain SQL
+    // equality on a precomputed hash - fetch the stored hash and verify
+    // it in application code instead.
     let user = await query(env,
-      'SELECT id, username, email, country, role FROM users WHERE username = ? AND password = ?',
-      [username, hashedPassword]
+      'SELECT id, username, email, country, role, password FROM users WHERE username = ?',
+      [username]
     );
 
-    // If not found by username, try email
     if (user.results.length === 0) {
       user = await query(env,
-        'SELECT id, username, email, country, role FROM users WHERE email = ? AND password = ?',
-        [username, hashedPassword]
+        'SELECT id, username, email, country, role, password FROM users WHERE email = ?',
+        [username]
       );
     }
 
@@ -142,6 +135,23 @@ export async function handleLogin(request, env) {
     }
 
     const u = user.results[0];
+    const { valid, needsUpgrade } = await verifyPassword(password, u.password);
+
+    if (!valid) {
+      return Response.json({
+        success: false,
+        error: 'Invalid credentials'
+      }, { status: 401, headers: corsHeaders });
+    }
+
+    // Transparently upgrade legacy unsalted SHA-256 hashes to salted
+    // PBKDF2 now that we have the plaintext password in hand.
+    if (needsUpgrade) {
+      const upgraded = await hashPassword(password);
+      await run(env, 'UPDATE users SET password = ? WHERE id = ?', [upgraded, u.id]);
+    }
+
+    delete u.password;
     const token = await signJWT({ sub: u.id, username: u.username }, env);
 
     return Response.json({
@@ -372,8 +382,8 @@ export async function handleChangePassword(request, env) {
       }, { status: 404, headers: corsHeaders });
     }
 
-    const oldHashed = await hashPassword(oldPassword);
-    if (userResult.results[0].password !== oldHashed) {
+    const { valid } = await verifyPassword(oldPassword, userResult.results[0].password);
+    if (!valid) {
       return Response.json({
         success: false,
         error: 'Current password is incorrect'

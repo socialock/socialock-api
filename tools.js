@@ -4,6 +4,7 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import { requireAuth, sanitizeText } from './security.js';
 
 // ===== GET ALL TOOLS =====
 export async function getTools(request, env) {
@@ -28,13 +29,31 @@ export async function getTools(request, env) {
 // ===== CREATE TOOL =====
 export async function createTool(request, env) {
   try {
-    const body = await request.json();
-    const { user_id, name, type, link } = body;
+    // Must be authenticated - tool is always created as the JWT owner.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
+    }
+    const user_id = auth.sub;
 
-    if (!user_id || !name || !type || !link) {
+    const body = await request.json();
+    const name = sanitizeText(body.name || '', 100);
+    const type = sanitizeText(body.type || '', 50);
+    const link = sanitizeText(body.link || '', 500);
+
+    if (!name || !type || !link) {
       return Response.json({ 
         success: false, 
         error: 'Missing required fields' 
+      }, { status: 400, headers: corsHeaders });
+    }
+
+    if (!/^https?:\/\//i.test(link)) {
+      return Response.json({
+        success: false,
+        error: 'Link must be a valid http(s) URL'
       }, { status: 400, headers: corsHeaders });
     }
 
@@ -58,14 +77,24 @@ export async function createTool(request, env) {
 // ===== DELETE TOOL =====
 export async function deleteTool(request, env, toolId) {
   try {
-    const body = await request.json();
-    const { user_id } = body;
+    // Must be authenticated as the tool owner.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
+    }
+    const user_id = auth.sub;
 
-    if (!user_id) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    const existing = await query(env, 'SELECT user_id FROM tools WHERE id = ?', [toolId]);
+    if (existing.results.length === 0) {
+      return Response.json({ success: false, error: 'Tool not found' }, { status: 404, headers: corsHeaders });
+    }
+    if (existing.results[0].user_id !== user_id) {
+      return Response.json({
+        success: false,
+        error: 'You are not allowed to delete this tool'
+      }, { status: 403, headers: corsHeaders });
     }
 
     await run(env,

@@ -52,6 +52,19 @@ function decodeJSON(str) {
   return JSON.parse(base64urlDecodeToString(str));
 }
 
+// Constant-time string comparison to avoid leaking signature bytes
+// via response-timing side channels.
+function timingSafeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 async function hmacSign(data, secret) {
   const key = await crypto.subtle.importKey(
     'raw',
@@ -87,7 +100,7 @@ export async function verifyJWT(token, env) {
   const secret = getSecret(env);
   const expectedSig = await hmacSign(`${headerEnc}.${payloadEnc}`, secret);
 
-  if (expectedSig !== signature) {
+  if (!timingSafeEqual(expectedSig, signature)) {
     throw new Error('Invalid token signature');
   }
 
@@ -323,4 +336,73 @@ export function sanitizeText(input, maxLength = 5000) {
 
 export function isValidPrivacy(value) {
   return value === 'public' || value === 'followers';
+}
+
+// ============================================================
+// ===== PASSWORD HASHING (PBKDF2-HMAC-SHA256, salted) =====
+// ------------------------------------------------------------
+// Previously passwords were hashed with a single unsalted
+// SHA-256 pass - fast enough to brute-force at billions of
+// guesses/sec on a GPU, and identical passwords produced
+// identical hashes (rainbow-table friendly). This replaces it
+// with per-user-salted PBKDF2 at 100,000 iterations, stored in
+// the SAME `password` TEXT column as:
+//   pbkdf2$<iterations>$<base64url salt>$<base64url hash>
+// verifyPassword() also still recognizes the OLD bare-hex-SHA256
+// format so existing accounts keep working, and transparently
+// reports whether the record should be upgraded on next login.
+// ============================================================
+
+const PBKDF2_ITERATIONS = 100000;
+
+function isLegacySha256Hex(stored) {
+  return typeof stored === 'string' && /^[0-9a-f]{64}$/i.test(stored);
+}
+
+async function legacySha256Hex(password) {
+  const data = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    keyMaterial,
+    256
+  );
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${base64urlEncode(salt)}$${base64urlEncode(bits)}`;
+}
+
+// Returns { valid: boolean, needsUpgrade: boolean }
+export async function verifyPassword(password, stored) {
+  if (!stored) return { valid: false, needsUpgrade: false };
+
+  if (isLegacySha256Hex(stored)) {
+    const computed = await legacySha256Hex(password);
+    return { valid: timingSafeEqual(computed, stored), needsUpgrade: true };
+  }
+
+  const parts = stored.split('$');
+  if (parts.length !== 4 || parts[0] !== 'pbkdf2') {
+    return { valid: false, needsUpgrade: false };
+  }
+  const [, iterStr, saltB64, hashB64] = parts;
+  const iterations = parseInt(iterStr, 10);
+  const salt = base64urlToUint8Array(saltB64);
+
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    keyMaterial,
+    256
+  );
+  const computedB64 = base64urlEncode(bits);
+  return { valid: timingSafeEqual(computedB64, hashB64), needsUpgrade: false };
 }

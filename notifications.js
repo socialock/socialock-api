@@ -4,6 +4,7 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import { requireAuth } from './security.js';
 
 // ============================================================
 // CREATE NOTIFICATION
@@ -89,15 +90,15 @@ export async function createOrUpdateLikeNotification(env, data) {
 // ============================================================
 export async function getNotifications(request, env) {
   try {
-    const url = new URL(request.url);
-    const userId = url.searchParams.get('userId');
-
-    if (!userId) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    // Must be authenticated - you can only read your own
+    // notifications, never an arbitrary ?userId=.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
     }
+    const userId = auth.sub;
 
     const result = await query(env,
       'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50',
@@ -122,15 +123,13 @@ export async function getNotifications(request, env) {
 // ============================================================
 export async function markNotificationRead(request, env, notifId) {
   try {
-    const body = await request.json();
-    const { user_id } = body;
-
-    if (!user_id) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
     }
+    const user_id = auth.sub;
 
     console.log('📤 Marking as read:', notifId, 'for user:', user_id);
 
@@ -158,15 +157,13 @@ export async function markNotificationRead(request, env, notifId) {
 // ============================================================
 export async function markAllNotificationsRead(request, env) {
   try {
-    const body = await request.json();
-    const { user_id } = body;
-
-    if (!user_id) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
     }
+    const user_id = auth.sub;
 
     await run(env,
       'UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0',
@@ -188,15 +185,13 @@ export async function markAllNotificationsRead(request, env) {
 // ============================================================
 export async function deleteNotification(request, env, notifId) {
   try {
-    const body = await request.json();
-    const { user_id } = body;
-
-    if (!user_id) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
     }
+    const user_id = auth.sub;
 
     console.log('📤 Deleting notification:', notifId, 'for user:', user_id);
 
@@ -224,15 +219,13 @@ export async function deleteNotification(request, env, notifId) {
 // ============================================================
 export async function deleteAllNotifications(request, env) {
   try {
-    const body = await request.json();
-    const { user_id } = body;
-
-    if (!user_id) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
     }
+    const user_id = auth.sub;
 
     await run(env,
       'DELETE FROM notifications WHERE user_id = ?',

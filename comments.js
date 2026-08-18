@@ -6,6 +6,7 @@ import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
 import { createNotification } from './notifications.js';
 import { isBlocked } from './blocks.js';
+import { requireAuth, sanitizeText } from './security.js';
 
 // ===== GET COMMENTS =====
 export async function getComments(request, env, postId) {
@@ -43,10 +44,22 @@ export async function getComments(request, env, postId) {
 // ===== CREATE COMMENT / REPLY =====
 export async function createComment(request, env, postId) {
   try {
-    const body = await request.json();
-    const { user_id, username, content, parent_comment_id } = body;
+    // Must be authenticated - comment is always created as the JWT
+    // owner, never as a client-supplied user_id/username.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
+    }
 
-    if (!user_id || !username || !content) {
+    const body = await request.json();
+    const { parent_comment_id } = body;
+    const content = sanitizeText(body.content || '', 2000);
+    const user_id = auth.sub;
+    const username = auth.username;
+
+    if (!content) {
       return Response.json({ 
         success: false, 
         error: 'Missing required fields' 
@@ -163,18 +176,17 @@ export async function getReplies(request, env, commentId) {
 // ===== DELETE COMMENT =====
 export async function deleteComment(request, env, commentId) {
   try {
-    const body = await request.json();
-    const { user_id } = body;
-
-    if (!user_id) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    // Must be authenticated as the comment owner.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
     }
+    const user_id = auth.sub;
 
     const comment = await query(env,
-      'SELECT post_id, parent_comment_id FROM comments WHERE id = ?',
+      'SELECT post_id, parent_comment_id, user_id FROM comments WHERE id = ?',
       [commentId]
     );
 
@@ -183,6 +195,13 @@ export async function deleteComment(request, env, commentId) {
         success: false, 
         error: 'Comment not found' 
       }, { status: 404, headers: corsHeaders });
+    }
+
+    if (comment.results[0].user_id !== user_id) {
+      return Response.json({
+        success: false,
+        error: 'You are not allowed to delete this comment'
+      }, { status: 403, headers: corsHeaders });
     }
 
     const postId = comment.results[0].post_id;

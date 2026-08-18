@@ -5,19 +5,22 @@
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
 import { createOrUpdateLikeNotification } from './notifications.js';
+import { requireAuth } from './security.js';
 
 // ===== LIKE POST =====
 export async function likePost(request, env, postId) {
   try {
-    const body = await request.json();
-    const { user_id, username } = body;
-
-    if (!user_id) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    // Must be authenticated - a like is always recorded as the JWT
+    // owner, never as a client-supplied user_id.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
     }
+    const user_id = auth.sub;
+    const body = await request.json().catch(() => ({}));
+    const username = auth.username || body.username;
 
     // Check if already liked
     const existing = await query(env,
@@ -83,15 +86,14 @@ export async function likePost(request, env, postId) {
 // ===== UNLIKE POST =====
 export async function unlikePost(request, env, postId) {
   try {
-    const body = await request.json();
-    const { user_id } = body;
-
-    if (!user_id) {
-      return Response.json({ 
-        success: false, 
-        error: 'User ID required' 
-      }, { status: 400, headers: corsHeaders });
+    // Must be authenticated - can only remove your own like.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
     }
+    const user_id = auth.sub;
 
     await run(env,
       'DELETE FROM likes WHERE post_id = ? AND user_id = ?',

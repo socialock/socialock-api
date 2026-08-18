@@ -4,7 +4,7 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
-import { getBearerToken, verifyJWT } from './security.js';
+import { getBearerToken, verifyJWT, requireAuth, sanitizeText } from './security.js';
 
 // ============================================================
 // GET POSTS
@@ -122,15 +122,19 @@ export async function getPosts(request, env) {
 // ============================================================
 export async function createPost(request, env) {
   try {
+    // Must be authenticated - the post is always created as the
+    // JWT owner, never as a client-supplied user_id/username.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
+    }
+
     const body = await request.json();
+    const content = sanitizeText(body.content || '', 5000);
 
-    const {
-      user_id,
-      username,
-      content
-    } = body;
-
-    if (!user_id || !username || !content) {
+    if (!content) {
       return Response.json(
         {
           success: false,
@@ -142,6 +146,9 @@ export async function createPost(request, env) {
         }
       );
     }
+
+    const userId = auth.sub;
+    const username = auth.username;
 
     await run(
       env,
@@ -157,7 +164,7 @@ export async function createPost(request, env) {
        VALUES
         (?, ?, ?, 0, 0, ?)`,
       [
-        user_id,
+        userId,
         username,
         content,
         new Date().toISOString()
@@ -249,19 +256,27 @@ export async function getPost(request, env, postId) {
 // ============================================================
 export async function deletePost(request, env, postId) {
   try {
-    const body = await request.json();
-    const { user_id } = body;
+    // Must be authenticated as the post owner - user_id can no longer
+    // be spoofed via the request body.
+    let auth;
+    try {
+      auth = await requireAuth(request, env);
+    } catch (authResponse) {
+      return authResponse;
+    }
+    const userId = auth.sub;
 
-    if (!user_id) {
+    const existing = await query(env, 'SELECT user_id FROM posts WHERE id = ?', [postId]);
+    if (existing.results.length === 0) {
       return Response.json(
-        {
-          success: false,
-          error: 'User ID required'
-        },
-        {
-          status: 400,
-          headers: corsHeaders
-        }
+        { success: false, error: 'Post not found' },
+        { status: 404, headers: corsHeaders }
+      );
+    }
+    if (existing.results[0].user_id !== userId) {
+      return Response.json(
+        { success: false, error: 'You are not allowed to delete this post' },
+        { status: 403, headers: corsHeaders }
       );
     }
 
@@ -280,7 +295,7 @@ export async function deletePost(request, env, postId) {
     await run(
       env,
       'DELETE FROM posts WHERE id = ? AND user_id = ?',
-      [postId, user_id]
+      [postId, userId]
     );
 
     return Response.json(
@@ -309,71 +324,12 @@ export async function deletePost(request, env, postId) {
 
 // ============================================================
 // UPDATE POST
+// ------------------------------------------------------------
+// REMOVED: this used to let ANY caller (no auth check at all)
+// directly overwrite likes_count / comments_count on ANY post to
+// an arbitrary value. Those counters are already maintained
+// correctly and atomically by likePost/unlikePost and
+// createComment/deleteComment, so this endpoint had no legitimate
+// use and was pure attack surface (like/comment-count spoofing).
+// The route has been removed from worker.js as well.
 // ============================================================
-export async function updatePost(request, env, postId) {
-  try {
-    const body = await request.json();
-
-    const {
-      likes_count,
-      comments_count
-    } = body;
-
-    const updates = [];
-    const params = [];
-
-    if (likes_count !== undefined) {
-      updates.push('likes_count = ?');
-      params.push(likes_count);
-    }
-
-    if (comments_count !== undefined) {
-      updates.push('comments_count = ?');
-      params.push(comments_count);
-    }
-
-    if (updates.length === 0) {
-      return Response.json(
-        {
-          success: false,
-          error: 'No fields to update'
-        },
-        {
-          status: 400,
-          headers: corsHeaders
-        }
-      );
-    }
-
-    params.push(postId);
-
-    await run(
-      env,
-      `UPDATE posts
-       SET ${updates.join(', ')}
-       WHERE id = ?`,
-      params
-    );
-
-    return Response.json(
-      {
-        success: true
-      },
-      {
-        headers: corsHeaders
-      }
-    );
-
-  } catch (error) {
-    return Response.json(
-      {
-        success: false,
-        error: error.message
-      },
-      {
-        status: 500,
-        headers: corsHeaders
-      }
-    );
-  }
-}

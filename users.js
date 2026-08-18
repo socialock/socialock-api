@@ -13,7 +13,8 @@ import {
   sanitizeText,
   USERNAME_MAX_LENGTH,
   getBearerToken,
-  verifyJWT
+  verifyJWT,
+  verifyPassword
 } from './security.js';
 
 
@@ -59,15 +60,6 @@ export const COUNTRY_LIST = [
   "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela",
   "Vietnam", "Yemen", "Zambia", "Zimbabwe"
 ];
-
-// ===== SHA-256 hash helper (kept identical to auth.js so hashes match) =====
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
 
 // ===== GET USER PROFILE =====
 // `country` is private, like a Gmail recovery detail: it is only ever
@@ -124,8 +116,42 @@ export async function getUser(request, env, userId) {
 }
 
 // ===== GET USER POSTS =====
+// Respects the same privacy rule as the main feed: if the profile is
+// 'followers'-only, only the owner and their followers may see the
+// posts. Previously this ignored privacy entirely and returned every
+// post to any caller who knew the userId.
 export async function getUserPosts(request, env, userId) {
   try {
+    let viewerId = null;
+    const token = getBearerToken(request);
+    if (token) {
+      try {
+        const payload = await verifyJWT(token, env);
+        viewerId = payload.sub || null;
+      } catch (e) {
+        viewerId = null;
+      }
+    }
+
+    const owner = await query(env, 'SELECT privacy FROM users WHERE id = ?', [userId]);
+    if (owner.results.length === 0) {
+      return Response.json({ success: false, error: 'User not found' }, { status: 404, headers: corsHeaders });
+    }
+
+    if (owner.results[0].privacy === 'followers' && viewerId !== userId) {
+      let isFollower = false;
+      if (viewerId) {
+        const f = await query(env,
+          'SELECT id FROM follows WHERE follower_id = ? AND following_id = ?',
+          [viewerId, userId]
+        );
+        isFollower = f.results.length > 0;
+      }
+      if (!isFollower) {
+        return Response.json({ success: true, data: [] }, { headers: corsHeaders });
+      }
+    }
+
     const result = await query(env,
       'SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC',
       [userId]
@@ -354,8 +380,8 @@ export async function updateEmail(request, env, userId) {
       return Response.json({ success: false, error: 'User not found' }, { status: 404, headers: corsHeaders });
     }
 
-    const hashed = await hashPassword(password);
-    if (userResult.results[0].password !== hashed) {
+    const { valid } = await verifyPassword(password, userResult.results[0].password);
+    if (!valid) {
       return Response.json({
         success: false,
         error: 'Password is incorrect'
@@ -417,8 +443,8 @@ export async function deleteAccount(request, env, userId) {
       return Response.json({ success: false, error: 'User not found' }, { status: 404, headers: corsHeaders });
     }
 
-    const hashed = await hashPassword(password);
-    if (userResult.results[0].password !== hashed) {
+    const { valid } = await verifyPassword(password, userResult.results[0].password);
+    if (!valid) {
       return Response.json({
         success: false,
         error: 'Password is incorrect'
