@@ -6,7 +6,6 @@ import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
 import { createNotification } from './notifications.js';
 import { isBlocked } from './blocks.js';
-import { requireAuth } from './security.js';
 
 // ===== GET COMMENTS =====
 export async function getComments(request, env, postId) {
@@ -45,10 +44,7 @@ export async function getComments(request, env, postId) {
 export async function createComment(request, env, postId) {
   try {
     const body = await request.json();
-    const auth = await requireAuth(request, env);
-    const user_id = auth.sub;
-    const username = auth.username;
-    const { content, parent_comment_id } = body;
+    const { user_id, username, content, parent_comment_id } = body;
 
     if (!user_id || !username || !content) {
       return Response.json({ 
@@ -167,8 +163,8 @@ export async function getReplies(request, env, commentId) {
 // ===== DELETE COMMENT =====
 export async function deleteComment(request, env, commentId) {
   try {
-    const auth = await requireAuth(request, env);
-    const user_id = auth.sub;
+    const body = await request.json();
+    const { user_id } = body;
 
     if (!user_id) {
       return Response.json({ 
@@ -192,9 +188,6 @@ export async function deleteComment(request, env, commentId) {
     const postId = comment.results[0].post_id;
     const parentId = comment.results[0].parent_comment_id;
 
-    const target = await query(env, 'SELECT user_id, post_id FROM comments WHERE id = ?', [commentId]);
-    if (!target.results.length) return Response.json({ success:false, error:'Comment not found' }, { status:404, headers:corsHeaders });
-    if (target.results[0].user_id !== user_id) return Response.json({ success:false, error:'Not allowed' }, { status:403, headers:corsHeaders });
     await run(env, 'DELETE FROM comments WHERE parent_comment_id = ?', [commentId]);
     await run(env, 'DELETE FROM comments WHERE id = ? AND user_id = ?', [commentId, user_id]);
 

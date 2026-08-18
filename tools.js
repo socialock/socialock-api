@@ -4,7 +4,6 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
-import { requireAuth } from './security.js';
 
 // ===== GET ALL TOOLS =====
 export async function getTools(request, env) {
@@ -30,9 +29,7 @@ export async function getTools(request, env) {
 export async function createTool(request, env) {
   try {
     const body = await request.json();
-    const auth = await requireAuth(request, env);
-    const user_id = auth.sub;
-    const { name, type, link } = body;
+    const { user_id, name, type, link } = body;
 
     if (!user_id || !name || !type || !link) {
       return Response.json({ 
@@ -61,8 +58,8 @@ export async function createTool(request, env) {
 // ===== DELETE TOOL =====
 export async function deleteTool(request, env, toolId) {
   try {
-    const auth = await requireAuth(request, env);
-    const user_id = auth.sub;
+    const body = await request.json();
+    const { user_id } = body;
 
     if (!user_id) {
       return Response.json({ 

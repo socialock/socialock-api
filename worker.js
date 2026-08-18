@@ -13,36 +13,8 @@ import { getNotifications, markNotificationRead, markAllNotificationsRead, delet
 import { getTools, createTool, deleteTool, getToolsAds } from './tools.js';
 import { getAds } from './ads.js';
 import { toggleBlockUser, getBlockedUsers, getBlockedUsersDetailed } from './blocks.js';
-import { checkRateLimit, rateLimitResponse, isLegitimateUserAgent, userAgentRejectResponse, getBearerToken, verifyJWT, autoBanIfBot, requireAuth } from './security.js';
+import { checkRateLimit, rateLimitResponse, isLegitimateUserAgent, userAgentRejectResponse } from './security.js';
 import { createReport } from './reports.js';
-
-
-async function enforceFeatureIdentity(request, env, path, method) {
-    const protectedFeature = path.startsWith('/api/notifications') || path.startsWith('/api/p2p') || path.startsWith('/api/live');
-    if (!protectedFeature) return;
-
-    const auth = await requireAuth(request, env);
-    const isRead = method === 'GET';
-    const url = new URL(request.url);
-    let identity = null;
-    if (isRead) {
-        identity = url.searchParams.get('userId') || url.searchParams.get('user_id');
-    } else {
-        try {
-            const clone = request.clone();
-            const body = await clone.json();
-            // These fields represent the caller, never the target.
-            identity = body?.user_id || body?.host_id || body?.from || null;
-        } catch (_) {}
-    }
-
-    // Endpoints that don't carry a caller ID are still protected by JWT.
-    // If a caller ID is supplied, it MUST equal the verified token subject.
-    if (identity && identity !== auth.sub) {
-        throw Response.json({success:false,error:'Identity mismatch'}, {status:403, headers:corsHeaders});
-    }
-    return auth;
-}
 
 // ===== P2P Imports =====
 import {
@@ -80,7 +52,7 @@ export default {
                 headers: {
                     'Access-Control-Allow-Origin': '*',
                     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
-                    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Automation',
+                    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
                     'Access-Control-Max-Age': '86400',
                 }
             });
@@ -92,23 +64,10 @@ export default {
 
         try {
             // ============================================================
-            // SECURITY: clear automation signals
-            // Auth routes handle their own ban decision. For all other
-            // state-changing routes, an authenticated automated client is
-            // automatically banned; unauthenticated automated requests are
-            // rejected.
+            // SECURITY: USER-AGENT CHECK (state-changing requests only)
             // ============================================================
-            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && !path.startsWith('/api/auth/')) {
-                if (!isLegitimateUserAgent(request)) {
-                    const token = getBearerToken(request);
-                    if (token) {
-                        try {
-                            const payload = await verifyJWT(token, env);
-                            await autoBanIfBot(request, env, payload.sub);
-                        } catch (_) {}
-                    }
-                    return userAgentRejectResponse();
-                }
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && !isLegitimateUserAgent(request)) {
+                return userAgentRejectResponse();
             }
 
             // ============================================================
@@ -135,13 +94,6 @@ export default {
                 if (!checkRateLimit(request, 'global', 120, 60000)) {
                     return rateLimitResponse(60);
                 }
-            }
-
-            // ============================================================
-            // FEATURE AUTHORIZATION: notifications / P2P / live
-            // ============================================================
-            if (!path.startsWith('/api/auth/')) {
-                await enforceFeatureIdentity(request, env, path, method);
             }
 
             // ============================================================
