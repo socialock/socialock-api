@@ -4,29 +4,19 @@
 // ============================================================
 
 import { corsHeaders } from './cors.js';
+import { query, run } from './db.js';
 
 // ============================================================
 // ===== JWT AUTHENTICATION (HS256, Web Crypto based) =====
 // ============================================================
 
-// 64+ character fallback secret (dev/local only). In production this MUST be
-// overridden with a strong, random 64+ character secret, e.g. generate one
-// with `openssl rand -hex 32` (64 hex chars) and set it via:
-//   wrangler secret put JWT_SECRET
-const DEFAULT_DEV_SECRET = 'socialock-dev-secret-CHANGE-ME-in-wrangler-secret-please-use-a-64plus-char-random-value-before-deploying-to-production';
-const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+// JWT_SECRET is mandatory; there is no insecure default/fallback.
 const MIN_SECRET_LENGTH = 64;
 
 function getSecret(env) {
-  // In production set this with: wrangler secret put JWT_SECRET
-  const secret = (env && env.JWT_SECRET) ? env.JWT_SECRET : DEFAULT_DEV_SECRET;
+  const secret = String(env?.JWT_SECRET || '');
   if (secret.length < MIN_SECRET_LENGTH) {
-    // Pad deterministically rather than reject outright, so a short custom
-    // secret someone forgets to rotate still results in a >=64 char key
-    // being used for HMAC signing (defense in depth, not a substitute for
-    // setting a real 64+ char JWT_SECRET).
-    console.error(`JWT_SECRET is shorter than ${MIN_SECRET_LENGTH} characters. Set a longer secret with: wrangler secret put JWT_SECRET`);
-    return secret.padEnd(MIN_SECRET_LENGTH, ':socialock-secret-padding:');
+    throw new Error(`JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters and must be configured as a Worker secret`);
   }
   return secret;
 }
@@ -119,7 +109,24 @@ export async function requireAuth(request, env) {
   try {
     const payload = await verifyJWT(token, env);
     if (!payload.sub) throw new Error('Invalid token payload');
-    return payload;
+
+    // Every authenticated request re-checks account status so a ban takes
+    // effect immediately even if the user already has a valid JWT.
+    const account = await querySecurityUser(env, payload.sub);
+    if (!account) throw new Error('Account not found');
+    if (account.is_banned) throw new Error('Account banned');
+    if (await isEmailBanned(env, account.email)) throw new Error('Email banned');
+
+    // A strong server-side automation signal automatically bans the account.
+    // This is intentionally limited to clear automation indicators; normal
+    // browser UA strings are not treated as bots.
+    const bot = detectBotRequest(request);
+    if (bot.detected) {
+      await banEmail(env, account.email, `Automatic bot detection: ${bot.reason}`, account.id);
+      throw new Error('Bot detected');
+    }
+
+    return { ...payload, email: account.email, role: account.role };
   } catch (err) {
     throw Response.json(
       { success: false, error: 'Invalid or expired session. Please log in again.' },
@@ -308,7 +315,7 @@ export function isValidEmail(email) {
 }
 
 export function isValidPassword(password) {
-  return typeof password === 'string' && password.length >= 6 && password.length <= 128;
+  return typeof password === 'string' && password.length >= 8 && password.length <= 128;
 }
 
 // Basic sanitizer: trims, strips control chars, enforces max length.
@@ -323,4 +330,90 @@ export function sanitizeText(input, maxLength = 5000) {
 
 export function isValidPrivacy(value) {
   return value === 'public' || value === 'followers';
+}
+
+
+// ============================================================
+// ACCOUNT BAN / BOT DETECTION
+// ============================================================
+export function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+export async function querySecurityUser(env, userId) {
+  const result = await query(env,
+    'SELECT id, email, role, COALESCE(is_banned, 0) AS is_banned FROM users WHERE id = ?',
+    [userId]
+  );
+  return result.results[0] || null;
+}
+
+export async function isEmailBanned(env, email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return false;
+  const result = await query(env,
+    'SELECT id FROM banned_emails WHERE email = ? AND active = 1 LIMIT 1',
+    [normalized]
+  );
+  return result.results.length > 0;
+}
+
+export async function banEmail(env, email, reason = 'Policy violation', userId = null) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return;
+  const now = new Date().toISOString();
+  await run(env,
+    `INSERT INTO banned_emails (email, reason, source, active, created_at, updated_at)
+     VALUES (?, ?, ?, 1, ?, ?)
+     ON CONFLICT(email) DO UPDATE SET
+       reason = excluded.reason,
+       source = excluded.source,
+       active = 1,
+       updated_at = excluded.updated_at`,
+    [normalized, reason, userId ? 'automatic' : 'manual', now, now]
+  );
+  if (userId) {
+    await run(env,
+      `UPDATE users SET is_banned = 1, ban_reason = ?, banned_at = ?, updated_at = ? WHERE id = ?`,
+      [reason, now, now, userId]
+    );
+  } else {
+    await run(env,
+      `UPDATE users SET is_banned = 1, ban_reason = ?, banned_at = ?, updated_at = ? WHERE lower(email) = ?`,
+      [reason, now, now, normalized]
+    );
+  }
+}
+
+
+const CLEAR_BOT_UA_PATTERNS = [
+  /curl\//i, /python-requests/i, /python-urllib/i, /wget\//i,
+  /scrapy/i, /libwww-perl/i, /go-http-client/i, /okhttp/i,
+  /aiohttp/i, /httpclient/i, /headlesschrome/i, /phantomjs/i,
+  /selenium/i, /playwright/i, /puppeteer/i
+];
+
+export function detectBotRequest(request) {
+  const ua = request.headers.get('User-Agent') || '';
+  const automationHeader = request.headers.get('X-Client-Automation') === '1';
+  const obviousUA = !ua.trim() || CLEAR_BOT_UA_PATTERNS.some(re => re.test(ua));
+  return { detected: automationHeader || obviousUA, reason: automationHeader ? 'Browser automation detected' : 'Automated client detected' };
+}
+
+export async function autoBanIfBot(request, env, userId = null, email = null) {
+  const detection = detectBotRequest(request);
+  if (!detection.detected) return false;
+  if (email) await banEmail(env, email, `Automatic bot detection: ${detection.reason}`, userId);
+  else if (userId) {
+    const user = await querySecurityUser(env, userId);
+    if (user?.email) await banEmail(env, user.email, `Automatic bot detection: ${detection.reason}`, userId);
+  }
+  return true;
+}
+
+export function bannedResponse() {
+  return Response.json(
+    { success: false, error: 'This account or email address is banned.' },
+    { status: 403, headers: corsHeaders }
+  );
 }

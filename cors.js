@@ -6,7 +6,7 @@
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Automation',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -17,7 +17,7 @@ export function handleCORS(request) {
       status: 204,
       headers: {
         ...corsHeaders,
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Automation',
       }
     });
   }
@@ -29,7 +29,7 @@ export function corsResponse(response) {
   const newResponse = new Response(response.body, response);
   newResponse.headers.set('Access-Control-Allow-Origin', '*');
   newResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  newResponse.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  newResponse.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Client-Automation');
   newResponse.headers.set('Access-Control-Max-Age', '86400');
   return newResponse;
 }

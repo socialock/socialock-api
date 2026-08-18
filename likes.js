@@ -4,13 +4,16 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import { requireAuth } from './security.js';
 import { createOrUpdateLikeNotification } from './notifications.js';
 
 // ===== LIKE POST =====
 export async function likePost(request, env, postId) {
   try {
     const body = await request.json();
-    const { user_id, username } = body;
+    const auth = await requireAuth(request, env);
+    const user_id = auth.sub;
+    const username = auth.username;
 
     if (!user_id) {
       return Response.json({ 
@@ -84,7 +87,8 @@ export async function likePost(request, env, postId) {
 export async function unlikePost(request, env, postId) {
   try {
     const body = await request.json();
-    const { user_id } = body;
+    const auth = await requireAuth(request, env);
+    const user_id = auth.sub;
 
     if (!user_id) {
       return Response.json({ 
@@ -116,8 +120,8 @@ export async function unlikePost(request, env, postId) {
 // ===== CHECK IF USER LIKED POST =====
 export async function checkLiked(request, env, postId) {
   try {
-    const url = new URL(request.url);
-    const userId = url.searchParams.get('userId');
+    const auth = await requireAuth(request, env);
+    const userId = auth.sub;
 
     if (!userId) {
       return Response.json({ 

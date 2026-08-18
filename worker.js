@@ -4,7 +4,7 @@
 
 import { corsHeaders, handleCORS } from './cors.js';
 import { handleRegister, handleLogin, handleResetPassword, handleChangePassword, handleSyncPassword, handleIssueToken } from './auth.js';
-import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools, updateUsername, updateEmail, updatePrivacy, deleteAccount } from './users.js';
+import { getUser, getUserPosts, updateBio, searchUsers, getVerifiedUsers, getUserTools, updateUsername, updateEmail, updatePrivacy, updateCountry, deleteAccount } from './users.js';
 import { getPosts, createPost, getPost, deletePost, updatePost } from './posts.js';
 import { getComments, createComment, deleteComment, getReplies } from './comments.js';
 import { likePost, unlikePost, checkLiked } from './likes.js';
@@ -13,7 +13,7 @@ import { getNotifications, markNotificationRead, markAllNotificationsRead, delet
 import { getTools, createTool, deleteTool, getToolsAds } from './tools.js';
 import { getAds } from './ads.js';
 import { toggleBlockUser, getBlockedUsers, getBlockedUsersDetailed } from './blocks.js';
-import { checkRateLimit, rateLimitResponse, isLegitimateUserAgent, userAgentRejectResponse } from './security.js';
+import { checkRateLimit, rateLimitResponse, isLegitimateUserAgent, userAgentRejectResponse, getBearerToken, verifyJWT, autoBanIfBot } from './security.js';
 import { createReport } from './reports.js';
 
 // ===== P2P Imports =====
@@ -52,7 +52,7 @@ export default {
                 headers: {
                     'Access-Control-Allow-Origin': '*',
                     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
-                    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+                    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Automation',
                     'Access-Control-Max-Age': '86400',
                 }
             });
@@ -64,10 +64,23 @@ export default {
 
         try {
             // ============================================================
-            // SECURITY: USER-AGENT CHECK (state-changing requests only)
+            // SECURITY: clear automation signals
+            // Auth routes handle their own ban decision. For all other
+            // state-changing routes, an authenticated automated client is
+            // automatically banned; unauthenticated automated requests are
+            // rejected.
             // ============================================================
-            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && !isLegitimateUserAgent(request)) {
-                return userAgentRejectResponse();
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && !path.startsWith('/api/auth/')) {
+                if (!isLegitimateUserAgent(request)) {
+                    const token = getBearerToken(request);
+                    if (token) {
+                        try {
+                            const payload = await verifyJWT(token, env);
+                            await autoBanIfBot(request, env, payload.sub);
+                        } catch (_) {}
+                    }
+                    return userAgentRejectResponse();
+                }
             }
 
             // ============================================================
@@ -118,12 +131,7 @@ export default {
                 return handleIssueToken(request, env);
             }
 
-            // ===== FOLLOW/UNFOLLOW =====
-            // IMPORTANT: these routes must be handled BEFORE the generic
-            // /api/users/:id router. Otherwise DELETE /api/users/follow
-            // is incorrectly interpreted as DELETE /api/users/:id with
-            // userId = "follow", which triggers requireSelf() and
-            // returns "You are not allowed to modify this account".
+            // ===== FOLLOW/UNFOLLOW (must be BEFORE /api/users/:id routes) =====
             if (path === '/api/users/follow' && method === 'POST') {
                 return followUser(request, env);
             }
@@ -153,6 +161,7 @@ export default {
                 const isUsername = path.endsWith('/username');
                 const isEmail = path.endsWith('/email');
                 const isPrivacy = path.endsWith('/privacy');
+                const isCountry = path.endsWith('/country');
                 const isPlainUserPath = parts.length === 4; // /api/users/:id exactly
 
                 if (method === 'DELETE' && isPlainUserPath) {
@@ -173,6 +182,9 @@ export default {
                 if (method === 'PUT' && isPrivacy) {
                     return updatePrivacy(request, env, userId);
                 }
+                if (method === 'PUT' && isCountry) {
+                    return updateCountry(request, env, userId);
+                }
                 if (method === 'GET' && isTools) {
                     return getUserTools(request, env, userId);
                 }
@@ -189,7 +201,7 @@ export default {
                     return getFollowing(request, env, userId);
                 }
                 if (method === 'GET' && !isPosts && !isBio && !isFollowers && !isFollowing &&
-                    !isTools && !isBlocked && !isBlockedDetailed && !isUsername && !isEmail && !isPrivacy) {
+                    !isTools && !isBlocked && !isBlockedDetailed && !isUsername && !isEmail && !isPrivacy && !isCountry) {
                     return getUser(request, env, userId);
                 }
             }
