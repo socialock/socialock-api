@@ -38,6 +38,13 @@ function encodeJSON(obj) {
   return base64urlEncode(new TextEncoder().encode(JSON.stringify(obj)));
 }
 
+function constantTimeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 function decodeJSON(str) {
   return JSON.parse(base64urlDecodeToString(str));
 }
@@ -74,10 +81,12 @@ export async function verifyJWT(token, env) {
     throw new Error('Malformed token');
   }
   const [headerEnc, payloadEnc, signature] = token.split('.');
+  const header = decodeJSON(headerEnc);
+  if (header.alg !== 'HS256' || header.typ !== 'JWT') throw new Error('Unsupported JWT algorithm');
   const secret = getSecret(env);
   const expectedSig = await hmacSign(`${headerEnc}.${payloadEnc}`, secret);
 
-  if (expectedSig !== signature) {
+  if (!constantTimeEqual(expectedSig, signature)) {
     throw new Error('Invalid token signature');
   }
 

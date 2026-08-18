@@ -4,6 +4,7 @@
 
 import { corsHeaders } from './cors.js';
 import { query, run } from './db.js';
+import { requireAuth } from './security.js';
 
 // ============================================================
 // CREATE NOTIFICATION
@@ -89,8 +90,9 @@ export async function createOrUpdateLikeNotification(env, data) {
 // ============================================================
 export async function getNotifications(request, env) {
   try {
+    const auth = await requireAuth(request, env);
     const url = new URL(request.url);
-    const userId = url.searchParams.get('userId');
+    const userId = auth.sub;
 
     if (!userId) {
       return Response.json({ 
@@ -122,8 +124,9 @@ export async function getNotifications(request, env) {
 // ============================================================
 export async function markNotificationRead(request, env, notifId) {
   try {
+    const auth = await requireAuth(request, env);
     const body = await request.json();
-    const { user_id } = body;
+    const user_id = auth.sub;
 
     if (!user_id) {
       return Response.json({ 
@@ -158,8 +161,9 @@ export async function markNotificationRead(request, env, notifId) {
 // ============================================================
 export async function markAllNotificationsRead(request, env) {
   try {
+    const auth = await requireAuth(request, env);
     const body = await request.json();
-    const { user_id } = body;
+    const user_id = auth.sub;
 
     if (!user_id) {
       return Response.json({ 
@@ -188,8 +192,9 @@ export async function markAllNotificationsRead(request, env) {
 // ============================================================
 export async function deleteNotification(request, env, notifId) {
   try {
+    const auth = await requireAuth(request, env);
     const body = await request.json();
-    const { user_id } = body;
+    const user_id = auth.sub;
 
     if (!user_id) {
       return Response.json({ 
@@ -224,8 +229,9 @@ export async function deleteNotification(request, env, notifId) {
 // ============================================================
 export async function deleteAllNotifications(request, env) {
   try {
+    const auth = await requireAuth(request, env);
     const body = await request.json();
-    const { user_id } = body;
+    const user_id = auth.sub;
 
     if (!user_id) {
       return Response.json({ 
