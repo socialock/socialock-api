@@ -22,8 +22,24 @@ import {
 // ===== Password hashing: PBKDF2-SHA256 =====
 async function hashPassword(password, saltBytes = null) {
   const salt = saltBytes || crypto.getRandomValues(new Uint8Array(16));
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, key, 256);
+  const key = await crypto.subtle.importKey(
+    'raw', 
+    new TextEncoder().encode(password), 
+    'PBKDF2', 
+    false, 
+    ['deriveBits']
+  );
+  // ✅ Fixed: 120000 → 100000 (Cloudflare Workers max limit)
+  const bits = await crypto.subtle.deriveBits(
+    { 
+      name: 'PBKDF2', 
+      salt, 
+      iterations: 100000, 
+      hash: 'SHA-256' 
+    }, 
+    key, 
+    256
+  );
   const bytes = new Uint8Array(bits);
   const hash = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -412,7 +428,7 @@ export async function handleChangePassword(request, env) {
     }
 
     const userId = auth.sub;
-    const userResult = await query(env, 'SELECT password FROM users WHERE id = ?', [userId]);
+    const userResult = await query(env, 'SELECT password, password_salt FROM users WHERE id = ?', [userId]);
 
     if (userResult.results.length === 0) {
       return Response.json({
