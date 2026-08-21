@@ -10,7 +10,7 @@ import { getComments, createComment, deleteComment, getReplies } from './comment
 import { likePost, unlikePost, checkLiked } from './likes.js';
 import { followUser, unfollowUser, getFollowers, getFollowing } from './follows.js';
 import { getNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification, deleteAllNotifications } from './notifications.js';
-import { getTools, createTool, deleteTool, getToolsAds } from './tools.js';
+import { getTools, createTool, deleteTool, getToolsAds, recordToolView } from './tools.js';
 import { getAds } from './ads.js';
 import { toggleBlockUser, getBlockedUsers, getBlockedUsersDetailed } from './blocks.js';
 import { checkRateLimit, rateLimitResponse, isLegitimateUserAgent, userAgentRejectResponse } from './security.js';
@@ -76,9 +76,10 @@ export default {
             const isAuthRoute = path.startsWith('/api/auth/');
             const isAccountDeleteRoute = method === 'DELETE' && path.startsWith('/api/users/') &&
                 path.split('/').length === 4; // /api/users/:id (no further segments)
+            const isToolViewRoute = method === 'POST' && path.startsWith('/api/tools/') && path.endsWith('/view');
             const isSensitiveRoute = path === '/api/users/block' || path.endsWith('/username') ||
                 path.endsWith('/email') || path.endsWith('/privacy') || path === '/api/reports' ||
-                isAccountDeleteRoute;
+                isAccountDeleteRoute || isToolViewRoute;
 
             if (isAuthRoute) {
                 // Tighter limit on auth endpoints (login/register/reset/change-password brute force protection)
@@ -293,6 +294,10 @@ export default {
             if (path.startsWith('/api/tools/') && method === 'DELETE') {
                 const toolId = path.split('/')[3];
                 return deleteTool(request, env, toolId);
+            }
+            if (path.startsWith('/api/tools/') && path.endsWith('/view') && method === 'POST') {
+                const toolId = path.split('/')[3];
+                return recordToolView(request, env, toolId);
             }
             if (path === '/api/tools_ads' && method === 'GET') {
                 return getToolsAds(request, env);

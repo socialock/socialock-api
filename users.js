@@ -475,6 +475,11 @@ export async function deleteAccount(request, env, userId) {
     // Block relationships in both directions
     await run(env, 'DELETE FROM blocks WHERE user_id = ? OR blocked_user_id = ?', [userId, userId]);
 
+    // View-log rows for tools they published, plus their own view
+    // history on other tools (keyed as "user:<id>" - see tools.js)
+    await run(env, 'DELETE FROM tool_views WHERE tool_id IN (SELECT id FROM tools WHERE user_id = ?)', [userId]);
+    await run(env, 'DELETE FROM tool_views WHERE viewer_key = ?', [`user:${userId}`]);
+
     // Tools they published
     await run(env, 'DELETE FROM tools WHERE user_id = ?', [userId]);
 
