@@ -116,13 +116,13 @@ export async function handleLogin(request, env) {
     // equality on a precomputed hash - fetch the stored hash and verify
     // it in application code instead.
     let user = await query(env,
-      'SELECT id, username, email, country, role, password FROM users WHERE username = ?',
+      'SELECT id, username, email, country, role, password, is_banned, ban_reason FROM users WHERE username = ?',
       [username]
     );
 
     if (user.results.length === 0) {
       user = await query(env,
-        'SELECT id, username, email, country, role, password FROM users WHERE email = ?',
+        'SELECT id, username, email, country, role, password, is_banned, ban_reason FROM users WHERE email = ?',
         [username]
       );
     }
@@ -144,6 +144,17 @@ export async function handleLogin(request, env) {
       }, { status: 401, headers: corsHeaders });
     }
 
+    // A banned account cannot log in at all - reject before issuing a token.
+    if (u.is_banned) {
+      return Response.json({
+        success: false,
+        error: u.ban_reason
+          ? `Your account has been banned. Reason: ${u.ban_reason}`
+          : 'Your account has been banned.',
+        banned: true
+      }, { status: 403, headers: corsHeaders });
+    }
+
     // Transparently upgrade legacy unsalted SHA-256 hashes to salted
     // PBKDF2 now that we have the plaintext password in hand.
     if (needsUpgrade) {
@@ -152,6 +163,8 @@ export async function handleLogin(request, env) {
     }
 
     delete u.password;
+    delete u.is_banned;
+    delete u.ban_reason;
     const token = await signJWT({ sub: u.id, username: u.username }, env);
 
     return Response.json({
@@ -319,7 +332,7 @@ export async function handleIssueToken(request, env) {
       }, { status: 401, headers: corsHeaders });
     }
 
-    const result = await query(env, 'SELECT id, username, email, country, role FROM users WHERE id = ?', [id]);
+    const result = await query(env, 'SELECT id, username, email, country, role, is_banned, ban_reason FROM users WHERE id = ?', [id]);
     if (result.results.length === 0) {
       return Response.json({
         success: false,
@@ -328,6 +341,21 @@ export async function handleIssueToken(request, env) {
     }
 
     const u = result.results[0];
+
+    // A banned account cannot receive a session token - this is what
+    // actually gates "login" for the Firebase-based frontend flow.
+    if (u.is_banned) {
+      return Response.json({
+        success: false,
+        error: u.ban_reason
+          ? `Your account has been banned. Reason: ${u.ban_reason}`
+          : 'Your account has been banned.',
+        banned: true
+      }, { status: 403, headers: corsHeaders });
+    }
+
+    delete u.is_banned;
+    delete u.ban_reason;
     const token = await signJWT({ sub: u.id, username: u.username }, env);
 
     return Response.json({

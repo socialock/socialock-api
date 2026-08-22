@@ -70,7 +70,8 @@ export async function getUser(request, env, userId) {
   try {
     const result = await query(env,
       `SELECT id, username, email, country, bio, cover_photo, avatar_url, 
-              is_verified, is_online, privacy, created_at 
+              is_verified, is_online, privacy, created_at,
+              is_banned, ban_reason, banned_at, role
        FROM users WHERE id = ?`,
       [userId]
     );
@@ -100,6 +101,9 @@ export async function getUser(request, env, userId) {
 
     if (!isSelf) {
       delete userData.country;
+      delete userData.role;
+      delete userData.ban_reason;
+      delete userData.banned_at;
     }
 
     return Response.json({ 
@@ -229,7 +233,7 @@ export async function searchUsers(request, env) {
     }
 
     const result = await query(env,
-      'SELECT id, username FROM users WHERE username LIKE ? LIMIT 20',
+      'SELECT id, username, email, is_verified, is_banned FROM users WHERE username LIKE ? LIMIT 20',
       [`%${queryParam}%`]
     );
 

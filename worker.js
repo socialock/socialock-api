@@ -15,6 +15,7 @@ import { getAds } from './ads.js';
 import { toggleBlockUser, getBlockedUsers, getBlockedUsersDetailed } from './blocks.js';
 import { checkRateLimit, rateLimitResponse, isLegitimateUserAgent, userAgentRejectResponse } from './security.js';
 import { createReport } from './reports.js';
+import { banUser, unbanUser, listBannedUsers } from './admin.js';
 
 // ===== P2P Imports =====
 import {
@@ -77,9 +78,10 @@ export default {
             const isAccountDeleteRoute = method === 'DELETE' && path.startsWith('/api/users/') &&
                 path.split('/').length === 4; // /api/users/:id (no further segments)
             const isToolViewRoute = method === 'POST' && path.startsWith('/api/tools/') && path.endsWith('/view');
+            const isAdminRoute = path.startsWith('/api/admin/');
             const isSensitiveRoute = path === '/api/users/block' || path.endsWith('/username') ||
                 path.endsWith('/email') || path.endsWith('/privacy') || path === '/api/reports' ||
-                isAccountDeleteRoute || isToolViewRoute;
+                isAccountDeleteRoute || isToolViewRoute || isAdminRoute;
 
             if (isAuthRoute) {
                 // Tighter limit on auth endpoints (login/register/reset/change-password brute force protection)
@@ -280,6 +282,23 @@ export default {
             // ============================================================
             if (path === '/api/reports' && method === 'POST') {
                 return createReport(request, env);
+            }
+
+            // ============================================================
+            // ADMIN (ban / unban users) - all require role = 'admin'
+            // ============================================================
+            if (path === '/api/admin/banned-users' && method === 'GET') {
+                return listBannedUsers(request, env);
+            }
+            if (path.startsWith('/api/admin/users/') && path.endsWith('/ban') && method === 'POST') {
+                const parts = path.split('/');
+                const targetUserId = parts[4]; // /api/admin/users/:id/ban
+                return banUser(request, env, targetUserId);
+            }
+            if (path.startsWith('/api/admin/users/') && path.endsWith('/unban') && method === 'POST') {
+                const parts = path.split('/');
+                const targetUserId = parts[4]; // /api/admin/users/:id/unban
+                return unbanUser(request, env, targetUserId);
             }
 
             // ============================================================

@@ -4,6 +4,7 @@
 // ============================================================
 
 import { corsHeaders } from './cors.js';
+import { query } from './db.js';
 
 // ============================================================
 // ===== JWT AUTHENTICATION (HS256, Web Crypto based) =====
@@ -119,8 +120,32 @@ export function getBearerToken(request) {
   return header.slice(7).trim();
 }
 
+// ===== Throws a Response (403) if the given user id is currently banned =====
+// Centralized here so every caller of requireAuth/requireSelf gets the
+// same enforcement, even for tokens that were issued before the ban.
+export async function assertNotBanned(env, userId) {
+  const result = await query(env, 'SELECT is_banned, ban_reason FROM users WHERE id = ?', [userId]);
+  if (result.results.length === 0) return; // user missing entirely - let the caller's own lookups 404
+  const row = result.results[0];
+  if (row.is_banned) {
+    throw Response.json(
+      {
+        success: false,
+        error: row.ban_reason
+          ? `Your account has been banned. Reason: ${row.ban_reason}`
+          : 'Your account has been banned.',
+        banned: true
+      },
+      { status: 403, headers: corsHeaders }
+    );
+  }
+}
+
 // ===== Require a valid JWT; returns { sub, username } payload =====
 // Throws a Response (401) on failure - callers should catch and return it.
+// Also rejects with 403 if the token's owner has been banned, so a banned
+// user cannot post, comment, like, follow, change settings, etc. even with
+// a still-valid token issued before the ban.
 export async function requireAuth(request, env) {
   const token = getBearerToken(request);
   if (!token) {
@@ -129,16 +154,33 @@ export async function requireAuth(request, env) {
       { status: 401, headers: corsHeaders }
     );
   }
+  let payload;
   try {
-    const payload = await verifyJWT(token, env);
+    payload = await verifyJWT(token, env);
     if (!payload.sub) throw new Error('Invalid token payload');
-    return payload;
   } catch (err) {
     throw Response.json(
       { success: false, error: 'Invalid or expired session. Please log in again.' },
       { status: 401, headers: corsHeaders }
     );
   }
+
+  await assertNotBanned(env, payload.sub);
+
+  return payload;
+}
+
+// ===== Require auth AND that the caller has role = 'admin' =====
+export async function requireAdmin(request, env) {
+  const payload = await requireAuth(request, env);
+  const result = await query(env, 'SELECT role FROM users WHERE id = ?', [payload.sub]);
+  if (result.results.length === 0 || result.results[0].role !== 'admin') {
+    throw Response.json(
+      { success: false, error: 'Admin access required' },
+      { status: 403, headers: corsHeaders }
+    );
+  }
+  return payload;
 }
 
 // ===== Require auth AND that the token owner matches :userId in the route =====
