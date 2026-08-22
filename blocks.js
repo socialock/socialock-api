@@ -45,6 +45,15 @@ export async function toggleBlockUser(request, env) {
       }, { status: 400, headers: corsHeaders });
     }
 
+    // The official SociaLock account can never be blocked by anyone.
+    const target = await query(env, 'SELECT username FROM users WHERE id = ?', [blocked_user_id]);
+    if (target.results.length > 0 && String(target.results[0].username || '').toLowerCase() === 'socialock') {
+      return Response.json({
+        success: false,
+        error: 'The official SociaLock account cannot be blocked'
+      }, { status: 403, headers: corsHeaders });
+    }
+
     // Auth: caller must be the blocker
     try {
       await requireSelf(request, env, user_id);
